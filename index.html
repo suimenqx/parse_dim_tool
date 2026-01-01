@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>离线表格分析器 V16.4 (Smart Parser)</title>
+    <style>
+        /* --- 1. Design Tokens --- */
+        :root {
+            --primary: #3b82f6; 
+            --primary-hover: #2563eb;
+            --primary-subtle: #eff6ff;
+            --bg-app: #f8fafc;
+            --bg-panel: #ffffff;
+            --bg-input: #ffffff;
+            --bg-hover: #f1f5f9;
+            --border-light: #e2e8f0;
+            --text-main: #0f172a;
+            --text-secondary: #64748b;
+            --text-tertiary: #94a3b8;
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --highlight-row: #f0f9ff;
+            --selection-bg: rgba(59, 130, 246, 0.15);
+            --z-float: 500;
+            --z-modal: 1000;
+        }
+
+        [data-theme="dark"] {
+            --primary: #60a5fa;
+            --primary-hover: #3b82f6;
+            --primary-subtle: #1e293b;
+            --bg-app: #0f172a;
+            --bg-panel: #1e293b;
+            --bg-input: #0f172a;
+            --bg-hover: #334155;
+            --border-light: #334155;
+            --text-main: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --highlight-row: #172554;
+            --selection-bg: rgba(96, 165, 250, 0.2);
+        }
+
+        * { box-sizing: border-box; outline: none; }
+        body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg-app); color: var(--text-main); font-size: 13px; line-height: 1.5; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        [data-theme="dark"] ::-webkit-scrollbar-thumb { background: #475569; }
+
+        .flex { display: flex; }
+        .flex-col { display: flex; flex-direction: column; }
+        .flex-1 { flex: 1; min-height: 0; min-width: 0; }
+        .items-center { align-items: center; }
+        .justify-between { justify-content: space-between; }
+        .gap-1 { gap: 4px; }
+        .gap-2 { gap: 8px; }
+        .gap-4 { gap: 16px; }
+        .w-full { width: 100%; }
+        .hidden { display: none !important; }
+        .bold { font-weight: 600; }
+
+        button { display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; height: 32px; font-size: 13px; font-weight: 500; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-panel); color: var(--text-main); cursor: pointer; transition: all 0.1s; white-space: nowrap; }
+        button:hover { background: var(--bg-hover); border-color: #cbd5e1; }
+        button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+        button.primary:hover { background: var(--primary-hover); }
+        button.icon-btn { padding: 0; width: 28px; height: 28px; border: none; background: transparent; color: var(--text-secondary); }
+        button.icon-btn:hover { background: var(--bg-hover); color: var(--text-main); }
+        button.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+        button.danger { color: #ef4444; border-color: #fecaca; }
+        button.danger:hover { background: #fef2f2; }
+
+        label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+        input[type="text"], select, textarea { width: 100%; height: 32px; padding: 0 8px; background: var(--bg-input); border: 1px solid var(--border-light); color: var(--text-main); border-radius: var(--radius-sm); font-family: inherit; font-size: 13px; }
+        input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-subtle); }
+        
+        .input-group { display: flex; width: 100%; }
+        .input-group > input { border-top-right-radius: 0; border-bottom-right-radius: 0; z-index: 1; }
+        .input-group > button { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; background: var(--bg-hover); border-color: var(--border-light); }
+        
+        .multi-select { min-height: 32px; padding: 3px; display: flex; flex-wrap: wrap; gap: 4px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-input); cursor: pointer; align-items: center; }
+        .chip { background: var(--primary-subtle); color: var(--primary); border: 1px solid rgba(59, 130, 246, 0.2); padding: 0 8px; height: 22px; border-radius: 11px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
+        .placeholder { color: var(--text-tertiary); margin-left: 6px; font-style: italic; }
+        
+        .checkbox-row { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; user-select: none; width: 100%; border-radius: var(--radius-sm); transition: background 0.1s; }
+        .checkbox-row:hover { background: var(--bg-hover); }
+        .checkbox-row input { margin: 0 8px 0 0; accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
+
+        /* --- Layout --- */
+        .topbar { height: 48px; background: var(--bg-panel); border-bottom: 1px solid var(--border-light); padding: 0 16px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .main-layout { display: flex; flex: 1; overflow: hidden; }
+        .panel { display: flex; flex-direction: column; background: var(--bg-panel); border-right: 1px solid var(--border-light); }
+        .panel.source { width: 340px; z-index: 10; }
+        .panel.config { width: 320px; background: var(--bg-app); }
+        .panel.preview { flex: 1; background: var(--bg-app); border-right: none; min-width: 0; }
+        .panel-header { height: 40px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; background: var(--bg-panel); border-bottom: 1px solid var(--border-light); font-weight: 600; color: var(--text-main); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .config-scroll { overflow-y: auto; padding: 16px; }
+        .section-header { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin: 20px 0 12px 0; }
+        .section-header::after { content: ""; flex: 1; height: 1px; background: var(--border-light); }
+        .control-block { margin-bottom: 16px; }
+        .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: var(--text-tertiary); color: white; font-size: 10px; cursor: help; margin-left: 6px; vertical-align: middle; }
+
+        /* Tables */
+        .table-container { background: var(--bg-panel); border: 1px solid var(--border-light); border-radius: var(--radius-md); margin: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-sm); height: calc(100% - 32px); }
+        .table-meta { padding: 8px 12px; background: var(--bg-hover); border-bottom: 1px solid var(--border-light); display: flex; gap: 8px; font-size: 11px; color: var(--text-secondary); }
+        .meta-tag { background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px; }
+        .table-scroll-area { overflow: auto; flex: 1; position: relative; }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; cursor: cell; user-select: none; }
+        th, td { padding: 6px 12px; border-bottom: 1px solid var(--border-light); border-right: 1px solid var(--border-light); white-space: pre; text-align: left; }
+        th { background: var(--bg-hover); color: var(--text-main); font-weight: 600; position: sticky; top: 0; z-index: 5; }
+        tr.highlight-row td { background: var(--highlight-row); }
+        td.selected-cell { background: var(--selection-bg) !important; }
+
+        /* Tabs */
+        .tabs-bar { height: 36px; background: var(--bg-hover); border-bottom: 1px solid var(--border-light); display: flex; padding: 0 8px; overflow-x: auto; align-items: flex-end; }
+        .tab { padding: 6px 12px; border-radius: 6px 6px 0 0; color: var(--text-secondary); cursor: pointer; font-size: 12px; margin-right: 2px; border: 1px solid transparent; border-bottom: none; display: flex; align-items: center; gap: 6px; }
+        .tab:hover { background: rgba(0,0,0,0.03); }
+        .tab.active { background: var(--bg-panel); color: var(--primary); border-color: var(--border-light); font-weight: 600; height: 37px; margin-bottom: -1px; }
+        .tab-close { font-size: 14px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text-tertiary); }
+        .tab-close:hover { background: #ef4444; color: white; }
+
+        /* Floating */
+        #tooltip { position: fixed; background: #1e293b; color: white; padding: 8px 12px; border-radius: 6px; font-size: 12px; z-index: 9999; pointer-events: none; opacity: 0; transition: opacity 0.1s; max-width: 250px; line-height: 1.4; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        #tooltip.show { opacity: 1; }
+        #toast { position: fixed; bottom: 24px; right: 24px; background: #10b981; color: white; padding: 10px 16px; border-radius: 6px; font-weight: 500; z-index: 9999; transform: translateY(100px); transition: transform 0.3s; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #toast.show { transform: translateY(0); }
+        #toast.error { background: #ef4444; }
+
+        /* Modals & Draggable Panels */
+        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(1px); z-index: var(--z-modal); display: flex; align-items: center; justify-content: center; }
+        .modal { background: var(--bg-panel); width: 480px; max-height: 80vh; border-radius: 8px; border: 1px solid var(--border-light); box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        
+        .draggable-panel { 
+            position: fixed; top: 80px; left: 50%; transform: translateX(-50%); width: 700px; height: 600px;
+            background: var(--bg-panel); border: 1px solid var(--border-light); border-radius: 8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.05);
+            display: flex; flex-direction: column; z-index: var(--z-float);
+        }
+        .draggable-header { cursor: move; background: var(--bg-hover); border-bottom: 1px solid var(--border-light); }
+        
+        /* Join Editor Specifics */
+        .je-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1; overflow: hidden; padding: 16px; }
+        .je-col { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-light); border-radius: 4px; }
+        .je-col-head { background: var(--bg-hover); padding: 8px; border-bottom: 1px solid var(--border-light); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .je-list { flex: 1; overflow-y: auto; padding: 4px; }
+        .je-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .je-rel-l, .je-rel-r { flex: 1; width: 100%; }
+    </style>
+</head>
+<body>
+
+<div id="tooltip"></div>
+<div id="toast">Ready</div>
+
+<header class="topbar">
+    <div class="flex items-center gap-2">
+        <div style="width:24px; height:24px; background:var(--primary); border-radius:6px; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold;">T</div>
+        <span style="font-weight:600; font-size:14px;">离线表格分析器 <span style="font-weight:400; opacity:0.6;">v16.4 (Smart Parser)</span></span>
+    </div>
+    <button class="icon-btn" id="themeBtn" title="切换主题">◑</button>
+</header>
+
+<div class="tabs-bar" id="tabsContainer"></div>
+
+<div class="main-layout">
+    <div class="panel source">
+        <div class="panel-header">
+            <span>数据源</span>
+            <button class="icon-btn sm" id="addTabBtn">＋</button>
+        </div>
+        <div class="flex-1 flex-col">
+            <textarea id="rawInput" wrap="off" style="flex:1; border:none; border-radius:0; resize:none; padding:12px; font-family:'JetBrains Mono', monospace; line-height:1.4; white-space: pre; overflow-x: auto;" placeholder="请粘贴数据..."></textarea>
+        </div>
+        <div style="padding:12px; background:var(--bg-app); border-top:1px solid var(--border-light);">
+            <div class="flex gap-2 mb-3">
+                <button class="primary flex-1" id="parseBtn">解析并渲染</button>
+                <button id="sampleBtn">示例</button>
+                <button id="clearBtn">清空</button>
+            </div>
+            <div class="flex justify-between items-center text-tertiary" style="font-size:11px;">
+                <span>数据操作</span>
+                <div class="flex gap-1">
+                    <button class="icon-btn sm" id="exportRawBtn" title="导出原始">📊</button>
+                    <button class="icon-btn sm" id="exportTabBtn" title="导出页签">⬇</button>
+                    <button class="icon-btn sm" id="importTabBtn" title="导入页签">⬆</button>
+                    <input type="file" id="fileInputTab" class="hidden" accept=".json">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel config">
+        <div class="panel-header">
+            <span>显示与规则</span>
+            <div class="flex gap-1">
+                <button class="icon-btn sm" id="exportConfigBtn" title="导出配置">⬇</button>
+                <button class="icon-btn sm" id="importConfigBtn" title="导入配置">⬆</button>
+                <input type="file" id="fileInputConfig" class="hidden" accept=".json">
+            </div>
+        </div>
+        <div class="config-scroll">
+            <div class="section-header">视图与范围</div>
+            <div class="control-block">
+                <label>显示原始表</label>
+                <div class="multi-select" id="tablesTrigger"><span class="placeholder">加载中...</span></div>
+            </div>
+            <div class="control-block">
+                <label class="flex justify-between">
+                    <span>启用 JOIN 视图</span>
+                    <span style="color:var(--primary); cursor:pointer;" id="manageViewsBtn">管理</span>
+                </label>
+                <div class="multi-select" id="viewsTrigger"><span class="placeholder">未启用</span></div>
+            </div>
+
+            <div class="section-header">规则配置</div>
+            <div class="control-block">
+                <label>配置目标表</label>
+                <select id="targetTableSelect"></select>
+            </div>
+            <div class="control-block">
+                <label>关注列 / 显示列</label>
+                <div class="input-group">
+                    <input type="text" id="focusColsInput" placeholder="Col1, Col2...">
+                    <button id="selectColsBtn">选择</button>
+                </div>
+            </div>
+            <div class="control-block">
+                <label>高亮规则 <span class="help-icon" data-tip="语法增强：&#10;• ID=1001 (精确)&#10;• CPU>90 (数值)&#10;• Msg:Error (包含)&#10;• A=1 B!=OK (组合)">?</span></label>
+                <input type="text" id="hlInput" placeholder="error | ID=1 | CPU>90">
+            </div>
+            <div class="control-block">
+                <label>行过滤</label>
+                <input type="text" id="filterInput" placeholder="Status!=OK, Qty>0 ...">
+            </div>
+
+            <div class="section-header">全局与导出</div>
+            <div class="control-block">
+                <label>全局过滤</label>
+                <input type="text" id="globalFilter" placeholder="全局搜索 (支持 key=val)...">
+            </div>
+            <div class="control-block">
+                <label class="checkbox-row" id="toggleHlRow">
+                    <input type="checkbox" id="checkHl" checked>
+                    <span>启用高亮渲染</span>
+                </label>
+                <label class="checkbox-row" id="toggleOnlyHlRow">
+                    <input type="checkbox" id="checkOnlyHl">
+                    <span style="color:var(--primary);">仅显示高亮行 (Focus)</span>
+                </label>
+            </div>
+            <div style="height:1px; background:var(--border-light); margin:12px 0;"></div>
+            <div class="control-block">
+                <label>Excel 导出选项</label>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="checkExpSelected">
+                    <span>仅导出勾选表</span>
+                </label>
+                <select id="expColSelect" style="margin-top:4px;">
+                    <option value="all">导出全量列</option>
+                    <option value="shown">仅导出展示列</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel preview">
+        <div class="panel-header">
+            <div class="flex items-center gap-2">
+                <span>结果预览</span>
+                <span style="font-weight:400; color:var(--text-tertiary); font-size:11px; margin-left:8px;">提示: 拖拽选择, Ctrl+C 复制</span>
+            </div>
+            <button class="primary sm" id="exportPrevBtn">导出预览 Excel</button>
+        </div>
+        <div class="flex-1" id="previewArea" style="overflow:hidden; display:flex; flex-direction:column;">
+            <div style="margin:auto; text-align:center; color:var(--text-tertiary);">
+                <div style="font-size:32px; opacity:0.5; margin-bottom:8px;">▤</div>
+                <div>等待解析数据</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Container (Blocking) -->
+<div id="modalOverlay" class="modal-bg hidden">
+    <div id="modalContent" class="modal"></div>
+</div>
+
+<!-- Draggable Join Editor (Smart Configurator) -->
+<div id="joinEditorPanel" class="draggable-panel hidden">
+    <div class="panel-header draggable-header">
+        <span id="jeTitle">配置 JOIN 视图</span>
+        <div class="flex gap-2">
+            <button class="sm" id="jeCancel">取消</button>
+            <button class="primary sm" id="jeSave">保存视图</button>
+        </div>
+    </div>
+    
+    <!-- Config Area -->
+    <div style="padding:16px; border-bottom:1px solid var(--border-light); background:var(--bg-app);">
+        <div class="flex gap-4 mb-3">
+            <div class="flex-1">
+                <label>视图名称</label>
+                <input type="text" id="jeName" placeholder="e.g. StockReport">
+            </div>
+            <div class="flex-1">
+                <label>连接类型</label>
+                <select id="jeType"><option value="inner">Inner Join (仅匹配)</option><option value="left">Left Join (保留左表)</option></select>
+            </div>
+        </div>
+        <div class="flex gap-4 items-center">
+            <div class="flex-1">
+                <label>左表 (Source A)</label>
+                <select id="jeLeftTable"></select>
+            </div>
+            <div style="padding-top:20px; font-weight:bold; color:var(--text-tertiary);">🔗</div>
+            <div class="flex-1">
+                <label>右表 (Source B)</label>
+                <select id="jeRightTable"></select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Smart Picker Area -->
+    <div class="je-grid">
+        <!-- Left Fields -->
+        <div class="je-col">
+            <div class="je-col-head">
+                <span>左表字段池</span>
+                <div class="flex gap-1"><input id="jeLSearch" placeholder="搜索..." style="width:80px; height:24px; font-size:11px;"><button class="icon-btn" id="jeLAll" style="width:24px; height:24px;" title="全选/反选">✓</button></div>
+            </div>
+            <div class="je-list" id="jeLList"></div>
+        </div>
+        
+        <!-- Right Fields -->
+        <div class="je-col">
+            <div class="je-col-head">
+                <span>右表字段池</span>
+                <div class="flex gap-1"><input id="jeRSearch" placeholder="搜索..." style="width:80px; height:24px; font-size:11px;"><button class="icon-btn" id="jeRAll" style="width:24px; height:24px;" title="全选/反选">✓</button></div>
+            </div>
+            <div class="je-list" id="jeRList"></div>
+        </div>
+    </div>
+
+    <!-- Relation & Status -->
+    <div style="padding:12px 16px; border-top:1px solid var(--border-light); background:var(--bg-app); min-height:100px;">
+        <label>关联条件 (ON) <button class="icon-btn sm" id="jeAddRel" style="margin-left:8px; border:1px solid var(--border-light);">+</button></label>
+        <div id="jeRelContainer" style="max-height:80px; overflow-y:auto;"></div>
+        <div style="margin-top:8px; font-size:11px; color:var(--text-tertiary);" id="jeStatus">已选输出列: 0</div>
+    </div>
+</div>
+
+<script>
+/* --- Utils --- */
+const $ = (id) => document.getElementById(id);
+const createEl = (tag, cls) => { const e = document.createElement(tag); if(cls) e.className=cls; return e; };
+
+const Tooltip = {
+    el: $('tooltip'),
+    init() {
+        document.body.addEventListener('mouseenter', e => {
+            if(e.target.classList.contains('help-icon')) this.show(e.target, e.target.dataset.tip);
+        }, true);
+        document.body.addEventListener('mouseleave', e => {
+            if(e.target.classList.contains('help-icon')) this.hide();
+        }, true);
+    },
+    show(target, text) {
+        this.el.innerText = text; this.el.classList.add('show');
+        const r = target.getBoundingClientRect();
+        this.el.style.top = (r.top - 40) + 'px'; this.el.style.left = (r.left - 20) + 'px';
+    },
+    hide() { this.el.classList.remove('show'); }
+};
+Tooltip.init();
+
+const Toast = {
+    show(msg, isError=false) {
+        const el = $('toast'); el.textContent = msg; 
+        el.className = isError ? 'show error' : 'show';
+        setTimeout(()=>el.className='', 2000);
+    }
+};
+
+/* Exporter */
+const Exporter = {
+    getTimestamp() {
+        const now = new Date(); const pad = n => String(n).padStart(2,'0');
+        return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    },
+    download(filename, content, type='text/plain') {
+        const blob = new Blob([content], {type}); const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    },
+    toExcel(tables, prefix='export') {
+        if(!tables || !tables.length) return Toast.show('无数据可导出', true);
+        const escape = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        let xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Styles><Style ss:ID="H"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#3b82f6" ss:Pattern="Solid"/></Style></Styles>`;
+        tables.forEach(t => {
+            const sName = (t.name || 'Sheet').replace(/[:\\/?*\[\]]/g, '_').substring(0, 30);
+            xml += `<Worksheet ss:Name="${escape(sName)}"><Table><Row>`;
+            (t.headers || []).forEach(h => xml += `<Cell ss:StyleID="H"><Data ss:Type="String">${escape(h)}</Data></Cell>`);
+            xml += `</Row>`;
+            (t.rows || []).forEach(r => {
+                xml += `<Row>`;
+                const d = Array.isArray(r) ? r : (r.data || r.d || []);
+                d.forEach(c => xml += `<Cell><Data ss:Type="String">${escape(c)}</Data></Cell>`);
+                xml += `</Row>`;
+            });
+            xml += `</Table></Worksheet>`;
+        });
+        xml += `</Workbook>`;
+        this.download(`${prefix}_${this.getTimestamp()}.xls`, xml, 'application/vnd.ms-excel');
+    },
+    toJson(data, prefix='backup') { this.download(`${prefix}_${this.getTimestamp()}.json`, JSON.stringify(data, null, 2), 'application/json'); }
+};
+
+/* Core */
+const Store = {
+    state: { docs:[], activeId:null, theme:'light', globalViews:[] },
+    init() {
+        try { const s = JSON.parse(localStorage.getItem('v16_4_store')); if(s) this.state = s; } catch(e){}
+        if(this.state.docs.length===0) this.addDoc();
+        if(!this.state.globalViews) this.state.globalViews = [];
+        this.applyTheme();
+    },
+    save() { localStorage.setItem('v16_4_store', JSON.stringify(this.state)); },
+    addDoc() {
+        this.state.docs.push({ id: Date.now().toString(), title: `Analysis ${this.state.docs.length+1}`, raw: "", ui: { displayTables:null, enabledViews:null, targetTable:"", rules:{} } });
+        this.state.activeId = this.state.docs[this.state.docs.length-1].id; this.save();
+    },
+    removeDoc(id) {
+        if(this.state.docs.length<=1) return alert("至少保留一个页签");
+        const idx = this.state.docs.findIndex(d=>d.id===id);
+        this.state.docs.splice(idx,1);
+        if(this.state.activeId===id) this.state.activeId = this.state.docs[Math.max(0,idx-1)].id;
+        this.save();
+    },
+    curr() { 
+        const d = this.state.docs.find(d=>d.id===this.state.activeId) || this.state.docs[0];
+        if(!d.ui) d.ui = { displayTables:null, enabledViews:null, targetTable:"", rules:{} };
+        if(!d.ui.rules) d.ui.rules = {};
+        return d;
+    },
+    updateUI(k, v) { this.curr().ui[k]=v; this.save(); },
+    updateRule(table, field, value) {
+        const ui = this.curr().ui; if(!ui.rules[table]) ui.rules[table] = {}; ui.rules[table][field] = value; this.save();
+    },
+    toggleTheme() { this.state.theme = this.state.theme==='light'?'dark':'light'; this.applyTheme(); this.save(); },
+    applyTheme() { document.documentElement.setAttribute('data-theme', this.state.theme); }
+};
+
+/* Parser */
+const Parser = {
+    parse(txt) {
+        try {
+            const tables = []; let cur = null, inData = false, ranges = [];
+            txt.split(/\r?\n/).forEach(line => {
+                const trim = line.trim();
+                if(line.toLowerCase().includes('table-data')) {
+                    if(cur) tables.push(cur);
+                    const m = /table-data\s+([^\s|]+)/i.exec(line);
+                    cur = { name: m?m[1]:`T${tables.length+1}`, headers:[], rows:[], mode:'WS' }; inData = false; return;
+                }
+                if(!cur) return;
+                if(trim.startsWith('validflag')) {
+                    if(line.includes('\t')) { cur.mode='TAB'; cur.headers=trim.split('\t'); }
+                    else if(line.includes(',') && !line.includes('  ')) { cur.mode='CSV'; cur.headers=trim.split(','); }
+                    else { 
+                        cur.mode='FIXED'; ranges=[]; const regex=/\S+/g; let m;
+                        while((m=regex.exec(line))!==null) ranges.push({s:m.index, e:null});
+                        for(let k=0;k<ranges.length;k++) ranges[k].e = (k===ranges.length-1)?99999:ranges[k+1].s;
+                        cur.headers = ranges.map(r=>line.substring(r.s, Math.min(r.e, line.length)).trim());
+                    }
+                    inData = true; return;
+                }
+                if(inData) {
+                    if(trim.startsWith('<') || trim.startsWith('[')) { tables.push(cur); cur=null; inData=false; return; }
+                    if(!trim) return;
+                    
+                    let r = [];
+                    // ENHANCEMENT: Try WS split first
+                    const wsParts = line.trim().split(/\s+/);
+                    if(wsParts.length === cur.headers.length) {
+                        r = wsParts;
+                    } else {
+                        // Fallback
+                        if(cur.mode==='FIXED') r=ranges.map(rg => (rg.s>=line.length)?'':line.substring(rg.s, Math.min(rg.e, line.length)).trim());
+                        else if(cur.mode==='TAB') r=trim.split('\t');
+                        else if(cur.mode==='CSV') r=trim.split(',');
+                        else r=wsParts; 
+                    }
+                    while(r.length<cur.headers.length) r.push("");
+                    cur.rows.push(r);
+                }
+            });
+            if(cur) tables.push(cur);
+            return tables;
+        } catch(e) { console.error(e); Toast.show('解析出错', true); return []; }
+    }
+};
+
+/* Joiner */
+const Joiner = {
+    resolve(name, rawTables, views, stack=[]) {
+        if(stack.includes(name)) return null; 
+        const raw = rawTables.find(t=>t.name===name);
+        if(raw) return raw;
+        const v = views.find(v=>v.view===name);
+        if(v) return this.run(rawTables, v, views, [...stack, name]);
+        return null;
+    },
+    run(rawTables, cfg, views=[], stack=[]) {
+        const L = this.resolve(cfg.left, rawTables, views, stack);
+        const R = this.resolve(cfg.right, rawTables, views, stack);
+        if(!L || !R) return null;
+
+        const pairs = cfg.on.split(',').map(s => { const p=s.split('='); return p.length===2 ? [p[0].trim(), p[1].trim()] : null; }).filter(p=>p);
+        const cols = cfg.select.replace(/\n/g, ',').split(',').map(s=>s.trim()).filter(s=>s);
+        
+        const rIdx = new Map();
+        R.rows.forEach(r => {
+            const k = pairs.map(p => { const i=R.headers.indexOf(p[1]); return i>-1?r[i]:''; }).join('|||');
+            if(!rIdx.has(k)) rIdx.set(k,[]); rIdx.get(k).push(r);
+        });
+
+        const rows = [];
+        const lMap = new Map(L.headers.map((h,i)=>[h,i])), rMap = new Map(R.headers.map((h,i)=>[h,i]));
+        L.rows.forEach(lr => {
+            const k = pairs.map(p => { const i=lMap.get(p[0]); return i!==undefined?lr[i]:''; }).join('|||');
+            const matches = rIdx.get(k);
+            if(matches) matches.forEach(rr => rows.push({l:lr, r:rr}));
+            else if(cfg.type==='left') rows.push({l:lr, r:null});
+        });
+
+        const headers = cols.map(t => t.includes('.') ? t.split('.')[1] : t);
+        const resRows = rows.map(({l, r}) => cols.map(t => {
+            let src='left', col=t;
+            if(t.includes('.')) { const p=t.split('.'); src=p[0].toLowerCase(); col=p[1]; }
+            if(src==='left') return l[lMap.get(col)]||'';
+            return r ? (r[rMap.get(col)]||'') : '';
+        }));
+        return { name: `JOIN:${cfg.view}`, headers, rows: resRows, isView: true };
+    }
+};
+
+/* Draggable Utility */
+const Draggable = {
+    make(el, handle) {
+        let isDown=false, offX, offY;
+        handle.addEventListener('mousedown', e => { isDown=true; offX=e.clientX-el.offsetLeft; offY=e.clientY-el.offsetTop; handle.style.cursor='grabbing'; });
+        document.addEventListener('mouseup', () => { isDown=false; handle.style.cursor='move'; });
+        document.addEventListener('mousemove', e => { if(isDown) { e.preventDefault(); el.style.left=(e.clientX-offX)+'px'; el.style.top=(e.clientY-offY)+'px'; } });
+    }
+};
+
+/* Join Editor */
+const JoinEditor = {
+    state: { editIdx: -1, left: null, right: null, rels: [], lSel: [], rSel: [] },
+    
+    // Fixed: Ensure only Views are listed
+    modManageViews() {
+        const vs = Store.state.globalViews;
+        const list = vs.map((v,i) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; border:1px solid var(--border-light); margin-bottom:8px; border-radius:4px;">
+                <div><div style="font-weight:600; color:var(--primary);">${v.view}</div><div style="font-size:11px; color:var(--text-secondary);">${v.left} | ${v.right}</div></div>
+                <div class="flex gap-2"><button class="sm" id="jeEdit_${i}">编辑</button><button class="sm" id="jeDel_${i}" style="color:red; border-color:transparent;">删除</button></div>
+            </div>`).join('');
+        
+        App.modal('管理全局视图', `
+            <div style="max-height:300px; overflow-y:auto; margin-bottom:16px;">${list || '<div style="padding:10px; color:#999; text-align:center;">暂无视图</div>'}</div>
+            <button class="primary w-full" id="jeAddNew">新增视图</button>
+        `);
+        
+        $('jeAddNew').onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(-1); };
+        vs.forEach((_,i) => {
+            $(`jeEdit_${i}`).onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(i); };
+            $(`jeDel_${i}`).onclick = () => { if(confirm('删除?')) { Store.state.globalViews.splice(i,1); Store.save(); App.updSelects(); this.modManageViews(); App.run(); } };
+        });
+    },
+
+    open(editIdx = -1) {
+        const p = $('joinEditorPanel'); p.classList.remove('hidden');
+        this.state.editIdx = editIdx;
+        const v = editIdx > -1 ? Store.state.globalViews[editIdx] : { view:'', left:'', right:'', type:'inner', on:'', select:'' };
+        
+        $('jeTitle').textContent = editIdx > -1 ? '编辑全局视图' : '新增全局视图';
+        $('jeName').value = v.view;
+        $('jeType').value = v.type;
+        
+        const opts = App.getAvailableTables().map(n => `<option value="${n}">${n}</option>`).join('');
+        $('jeLeftTable').innerHTML = opts;
+        $('jeRightTable').innerHTML = opts;
+        
+        if (v.left) $('jeLeftTable').value = v.left;
+        else if ($('jeLeftTable').options.length > 0) $('jeLeftTable').selectedIndex = 0;
+
+        if (v.right) $('jeRightTable').value = v.right;
+        else if ($('jeRightTable').options.length > 0) $('jeRightTable').selectedIndex = 0;
+        
+        this.state.rels = v.on ? v.on.split(',').map(s => { const p=s.split('='); return {l:p[0].trim(), r:p[1].trim()}; }) : [];
+        if(this.state.rels.length === 0) this.state.rels.push({l:'', r:''});
+        
+        this.state.lSel = []; this.state.rSel = [];
+        if(v.select) {
+            v.select.split(',').forEach(s => {
+                const t = s.trim();
+                if(t.startsWith('left.')) this.state.lSel.push(t.split('.')[1]);
+                else if(t.startsWith('right.')) this.state.rSel.push(t.split('.')[1]);
+                else this.state.lSel.push(t);
+            });
+        }
+        
+        this.refreshColumns();
+        this.renderRels();
+        this.updateStatus();
+    },
+    
+    refreshColumns() {
+        const lName = $('jeLeftTable').value;
+        const rName = $('jeRightTable').value;
+        const lCols = App.getCols(lName);
+        const rCols = App.getCols(rName);
+        
+        this.renderColList('jeLList', lCols, this.state.lSel, 'l');
+        this.renderColList('jeRList', rCols, this.state.rSel, 'r');
+    },
+    
+    renderColList(id, cols, selected, side) {
+        const search = $(side === 'l' ? 'jeLSearch' : 'jeRSearch').value.toLowerCase();
+        const html = cols.filter(c => c.toLowerCase().includes(search)).map(c => `
+            <label class="checkbox-row">
+                <input type="checkbox" data-side="${side}" value="${c}" ${selected.includes(c)?'checked':''}>
+                <span>${c}</span>
+            </label>
+        `).join('');
+        $(id).innerHTML = html || '<div style="padding:8px; color:#999;">无字段</div>';
+        
+        $(id).querySelectorAll('input').forEach(chk => {
+            chk.onchange = () => {
+                const arr = side === 'l' ? this.state.lSel : this.state.rSel;
+                if(chk.checked) { if(!arr.includes(chk.value)) arr.push(chk.value); }
+                else { const idx = arr.indexOf(chk.value); if(idx>-1) arr.splice(idx,1); }
+                this.updateStatus();
+            };
+        });
+    },
+    
+    renderRels() {
+        const lName = $('jeLeftTable').value;
+        const rName = $('jeRightTable').value;
+        const lCols = App.getCols(lName).map(c=>`<option value="${c}">${c}</option>`).join('');
+        const rCols = App.getCols(rName).map(c=>`<option value="${c}">${c}</option>`).join('');
+        
+        $('jeRelContainer').innerHTML = this.state.rels.map((r, i) => `
+            <div class="je-row">
+                <select class="je-rel-l" data-idx="${i}">${lCols || '<option>无字段</option>'}</select> 
+                <span>=</span> 
+                <select class="je-rel-r" data-idx="${i}">${rCols || '<option>无字段</option>'}</select>
+                <button class="icon-btn sm danger" onclick="JoinEditor.delRel(${i})">×</button>
+            </div>
+        `).join('');
+        
+        const ls = document.querySelectorAll('.je-rel-l');
+        const rs = document.querySelectorAll('.je-rel-r');
+        this.state.rels.forEach((r, i) => {
+            if(r.l) ls[i].value = r.l;
+            if(r.r) rs[i].value = r.r;
+        });
+        
+        ls.forEach(s => s.onchange = e => this.state.rels[e.target.dataset.idx].l = e.target.value);
+        rs.forEach(s => s.onchange = e => this.state.rels[e.target.dataset.idx].r = e.target.value);
+    },
+    
+    addRel() { this.state.rels.push({l:'', r:''}); this.renderRels(); },
+    delRel(i) { this.state.rels.splice(i, 1); this.renderRels(); },
+    
+    toggleAll(side) {
+        const id = side === 'l' ? 'jeLList' : 'jeRList';
+        const inputs = $(id).querySelectorAll('input');
+        const allChecked = Array.from(inputs).every(i => i.checked);
+        const arr = side === 'l' ? this.state.lSel : this.state.rSel;
+        
+        inputs.forEach(i => {
+            i.checked = !allChecked;
+            if(!allChecked) { if(!arr.includes(i.value)) arr.push(i.value); }
+            else { const idx = arr.indexOf(i.value); if(idx>-1) arr.splice(idx,1); }
+        });
+        this.updateStatus();
+    },
+    
+    updateStatus() {
+        $('jeStatus').textContent = `已选输出列: ${this.state.lSel.length + this.state.rSel.length} (Left: ${this.state.lSel.length}, Right: ${this.state.rSel.length})`;
+    },
+    
+    save() {
+        const name = $('jeName').value.trim();
+        if(!name) return alert('请输入视图名称');
+        
+        // Grab current values from SELECTs just in case state wasn't updated (e.g. init defaults)
+        document.querySelectorAll('.je-rel-l').forEach((s,i) => this.state.rels[i].l = s.value);
+        document.querySelectorAll('.je-rel-r').forEach((s,i) => this.state.rels[i].r = s.value);
+
+        const onStr = this.state.rels.map(r => `${r.l}=${r.r}`).join(',');
+        const selStr = [
+            ...this.state.lSel.map(c => `left.${c}`),
+            ...this.state.rSel.map(c => `right.${c}`)
+        ].join(',');
+        
+        const nv = {
+            view: name,
+            left: $('jeLeftTable').value,
+            right: $('jeRightTable').value,
+            type: $('jeType').value,
+            on: onStr,
+            select: selStr
+        };
+        
+        if(!nv.on || !nv.select) return alert('请至少配置一个关联条件和一个输出列');
+        
+        if(this.state.editIdx > -1) Store.state.globalViews[this.state.editIdx] = nv;
+        else Store.state.globalViews.push(nv);
+        
+        Store.save();
+        App.updSelects();
+        App.run();
+        $('joinEditorPanel').classList.add('hidden');
+    }
+};
+
+/* Selection Logic */
+const Select = {
+    start: null, end: null, active: false,
+    init() {
+        const p = $('previewArea');
+        p.addEventListener('mousedown', e => {
+            const td = e.target.closest('td'); if(!td) { this.clear(); return; }
+            this.active = true; this.start = this.end = this.getCoord(td); this.draw();
+        });
+        p.addEventListener('mouseover', e => {
+            if(!this.active) return;
+            const td = e.target.closest('td');
+            if(td && this.getCoord(td).idx === this.start.idx) { this.end = this.getCoord(td); this.draw(); }
+        });
+        document.addEventListener('mouseup', () => this.active=false);
+        document.addEventListener('copy', e => { if(this.start && this.end) { e.preventDefault(); this.copy(e); } });
+    },
+    getCoord(td) { return { idx: +td.closest('table').dataset.idx, r: +td.dataset.r, c: +td.dataset.c }; },
+    draw() {
+        document.querySelectorAll('.selected-cell').forEach(e=>e.classList.remove('selected-cell'));
+        if(!this.start) return;
+        const tbl = document.querySelector(`table[data-idx="${this.start.idx}"]`); if(!tbl) return;
+        const minR=Math.min(this.start.r,this.end.r), maxR=Math.max(this.start.r,this.end.r);
+        const minC=Math.min(this.start.c,this.end.c), maxC=Math.max(this.start.c,this.end.c);
+        for(let r=minR; r<=maxR; r++) { for(let c=minC; c<=maxC; c++) { const td = tbl.querySelector(`td[data-r="${r}"][data-c="${c}"]`); if(td) td.classList.add('selected-cell'); } }
+    },
+    clear() { this.start=null; this.end=null; this.draw(); },
+    copy(e) {
+        const tbl = document.querySelector(`table[data-idx="${this.start.idx}"]`);
+        const minR=Math.min(this.start.r,this.end.r), maxR=Math.max(this.start.r,this.end.r);
+        const minC=Math.min(this.start.c,this.end.c), maxC=Math.max(this.start.c,this.end.c);
+        let hHtml = '<thead><tr>'; let hText = '';
+        const thead = tbl.querySelector('thead');
+        if(thead) {
+            const ths = thead.querySelectorAll('th');
+            for(let c=minC; c<=maxC; c++) {
+               const txt = ths[c] ? ths[c].textContent : '';
+               hHtml += `<th style="background:#444; color:#fff; border:1px solid #ccc;">${txt}</th>`; hText += txt + '\t';
+            }
+        }
+        hHtml += '</tr></thead>'; hText = hText.trimEnd() + '\n';
+        let bHtml = '<tbody>'; let bText = '';
+        for(let r=minR; r<=maxR; r++) {
+            bHtml += '<tr>';
+            for(let c=minC; c<=maxC; c++) {
+                const td = tbl.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
+                const v = td?td.textContent:''; bHtml += `<td style="border:1px solid #ccc;">${v}</td>`; bText += v + '\t';
+            }
+            bHtml += '</tr>'; bText = bText.trimEnd() + '\n';
+        }
+        bHtml += '</tbody>';
+        e.clipboardData.setData('text/html', `<table border="1">${hHtml}${bHtml}</table>`);
+        e.clipboardData.setData('text/plain', hText + bText);
+        Toast.show(`已复制 ${maxR-minR+1} 行`);
+    }
+};
+
+/* Main App */
+const App = {
+    raw: [], rendered: [],
+    init() {
+        Store.init(); Select.init(); this.bind(); this.renderTabs(); this.loadDoc();
+        Draggable.make($('joinEditorPanel'), $('joinEditorPanel').querySelector('.draggable-header'));
+        
+        // Picker Logic
+        $('previewArea').addEventListener('click', e => {
+            if(!document.body.classList.contains('picker-active')) return;
+            const th = e.target.closest('th');
+            if(th && JoinEditor.lastFocusedInput) {
+                // ... logic for picker ...
+            }
+        });
+    },
+    
+    getAvailableTables() {
+        const raws = this.raw.map(t => t.name);
+        const views = Store.state.globalViews.map(v => v.view);
+        return [...raws, ...views];
+    },
+    
+    getCols(tableName) {
+        if(!tableName) return [];
+        const raw = this.raw.find(t => t.name === tableName);
+        if(raw) return raw.headers;
+        const view = Store.state.globalViews.find(v => v.view === tableName);
+        if(view) {
+            const res = Joiner.run(this.raw, view, Store.state.globalViews);
+            return res ? res.headers : [];
+        }
+        return [];
+    },
+
+    bind() {
+        $('addTabBtn').onclick = () => { Store.addDoc(); this.renderTabs(); this.loadDoc(); };
+        $('parseBtn').onclick = () => this.run();
+        $('clearBtn').onclick = () => { $('rawInput').value=''; this.run(); };
+        
+        $('sampleBtn').onclick = () => {
+            $('rawInput').value = `table-data Inventory
+validflag ID      Product       Category    Stock   Price
+ 1        1001    Widget_A      Hardware    50      10.50
+ 1        1002    Widget_B      Hardware    0       25.00
+ 1        1003    Gadget_X      Electronics 15      99.99
+ 1        1004    Gadget_Y      Electronics 5       150.00
+
+table-data Orders
+validflag OrderID CustID  ProdID  Qty   Status
+ 1        5001    C001    1001    5     Shipped
+ 1        5002    C002    1003    1     Pending
+ 1        5003    C001    1002    2     Backorder
+ 1        5004    C003    1001    10    Shipped
+
+table-data SystemLogs
+validflag Time      Level   Message                 Code
+ 1        10:00:01  INFO    System started          0x00
+ 1        10:05:23  WARN    High memory usage       0x04
+ 1        10:15:00  ERROR   Connection timeout      0x99
+ 1        10:15:01  INFO    Retry connection...     0x00`;
+            this.run();
+        };
+
+        $('rawInput').oninput = e => { Store.curr().raw = e.target.value; Store.save(); };
+        $('tabsContainer').onclick = e => {
+            if(e.target.classList.contains('tab-close')) {
+                e.stopPropagation();
+                const t = e.target.closest('.tab');
+                Store.removeDoc(t.dataset.id); 
+                App.renderTabs(); App.loadDoc();
+                return;
+            }
+            const t = e.target.closest('.tab'); if(!t) return;
+            Store.state.activeId = t.dataset.id; Store.save(); this.renderTabs(); this.loadDoc();
+        };
+
+        const inputBind = (id, k, subK) => $(id).oninput = e => {
+            const val = e.target.type==='checkbox'?e.target.checked:e.target.value;
+            if(subK) { if(k==='rules') { const tbl=$('targetTableSelect').value; if(tbl) Store.updateRule(tbl, subK, val); } else Store.updateUI(k, val); } else Store.updateUI(k, val);
+            this.renderPreview();
+        };
+        inputBind('globalFilter', 'globalFilter');
+        inputBind('checkHl', 'enableHighlight');
+        inputBind('checkOnlyHl', 'onlyHighlighted');
+        inputBind('checkExpSelected', 'exportOnlyChecked');
+        inputBind('expColSelect', 'exportCols');
+
+        $('targetTableSelect').onchange = () => this.syncRules();
+        inputBind('hlInput', 'rules', 'hl');
+        inputBind('filterInput', 'rules', 'filter');
+        $('focusColsInput').onchange = e => {
+            const t = $('targetTableSelect').value;
+            if(t) Store.updateRule(t, 'focus', e.target.value.split(',').filter(s=>s.trim()));
+            this.renderPreview();
+        };
+
+        $('tablesTrigger').onclick = () => this.modTables();
+        $('viewsTrigger').onclick = () => this.modViews();
+        // FIX: Correctly call JoinEditor.modManageViews
+        $('manageViewsBtn').onclick = e => { e.stopPropagation(); JoinEditor.modManageViews(); };
+        $('selectColsBtn').onclick = () => this.modCols();
+        $('themeBtn').onclick = () => Store.toggleTheme();
+
+        $('exportRawBtn').onclick = () => Exporter.toExcel(this.raw, 'raw');
+        $('exportPrevBtn').onclick = () => {
+            const data = this.rendered.map(r => ({
+                name: r.name || 'Sheet',
+                headers: r.headers,
+                rows: r.rows.map(row => row.d)
+            }));
+            Exporter.toExcel(data, 'preview');
+        };
+        $('exportTabBtn').onclick = () => Exporter.toJson({ kind:'table-tool-tabs', docs: Store.state.docs }, 'tabs');
+        $('importTabBtn').onclick = () => $('fileInputTab').click();
+        $('fileInputTab').onchange = e => {
+            const f = e.target.files[0]; if(!f) return;
+            const r = new FileReader();
+            r.onload = evt => {
+                try {
+                    const d = JSON.parse(evt.target.result);
+                    if(d.kind !== 'table-tool-tabs') throw new Error();
+                    if(confirm('覆盖现有? (取消则追加)')) Store.state.docs = d.docs;
+                    else Store.state.docs = Store.state.docs.concat(d.docs);
+                    Store.save(); App.renderTabs(); App.loadDoc(); Toast.show('导入成功');
+                } catch(e){ alert('格式错误'); }
+                e.target.value = '';
+            };
+            r.readAsText(f);
+        };
+        $('exportConfigBtn').onclick = () => Exporter.toJson({ kind:'table-tool-config', globalViews: Store.state.globalViews, docs: Store.state.docs.map(d=>({id:d.id, title:d.title, ui:d.ui})) }, 'config');
+        $('importConfigBtn').onclick = () => $('fileInputConfig').click();
+        $('fileInputConfig').onchange = e => {
+            const f = e.target.files[0]; if(!f) return;
+            const r = new FileReader();
+            r.onload = evt => {
+                try {
+                    const d = JSON.parse(evt.target.result);
+                    if(d.kind !== 'table-tool-config') throw new Error();
+                    if(d.globalViews) Store.state.globalViews = d.globalViews;
+                    if(d.docs) d.docs.forEach(x => { const t = Store.state.docs.find(y=>y.id===x.id||y.title===x.title); if(t) t.ui=x.ui; });
+                    Store.save(); App.loadDoc(); Toast.show('配置已更新');
+                } catch(e){ alert('格式错误'); }
+                e.target.value = '';
+            };
+            r.readAsText(f);
+        };
+        
+        // Editor Bindings
+        $('jeCancel').onclick = () => $('joinEditorPanel').classList.add('hidden');
+        $('jeSave').onclick = () => JoinEditor.save();
+        $('jeAddRel').onclick = () => JoinEditor.addRel();
+        $('jeLeftTable').onchange = () => { JoinEditor.refreshColumns(); JoinEditor.renderRels(); };
+        $('jeRightTable').onchange = () => { JoinEditor.refreshColumns(); JoinEditor.renderRels(); };
+        $('jeLSearch').oninput = () => JoinEditor.renderColList('jeLList', App.getCols($('jeLeftTable').value), JoinEditor.state.lSel, 'l');
+        $('jeRSearch').oninput = () => JoinEditor.renderColList('jeRList', App.getCols($('jeRightTable').value), JoinEditor.state.rSel, 'r');
+        $('jeLAll').onclick = () => JoinEditor.toggleAll('l');
+        $('jeRAll').onclick = () => JoinEditor.toggleAll('r');
+    },
+
+    loadDoc() {
+        const d = Store.curr();
+        $('rawInput').value = d.raw || '';
+        $('globalFilter').value = d.ui.globalFilter || '';
+        $('checkHl').checked = d.ui.enableHighlight !== false;
+        $('checkOnlyHl').checked = d.ui.onlyHighlighted || false;
+        this.run(false);
+    },
+
+    run(render=true) {
+        try {
+            Store.curr().raw = $('rawInput').value; Store.save();
+            this.raw = Parser.parse($('rawInput').value);
+            this.updSelects();
+            if(render) this.renderPreview();
+            this.updChips();
+        } catch(e) {
+            console.error(e);
+            Toast.show("解析错误: " + e.message, true);
+        }
+    },
+
+    updSelects() {
+        const s = $('targetTableSelect');
+        const old = s.value; s.innerHTML = '';
+        this.raw.forEach(t => s.add(new Option(t.name, t.name)));
+        Store.state.globalViews.forEach(v => s.add(new Option(`JOIN:${v.view}`, `JOIN:${v.view}`)));
+        if(old && Array.from(s.options).some(o=>o.value===old)) s.value=old;
+        else if(s.options.length>0) s.selectedIndex=0;
+        this.syncRules();
+    },
+
+    syncRules() {
+        const t = $('targetTableSelect').value;
+        const r = Store.curr().ui.rules[t] || {};
+        $('hlInput').value = r.hl || '';
+        $('filterInput').value = r.filter || '';
+        $('focusColsInput').value = (r.focus || []).join(', ');
+    },
+
+    updChips() {
+        const ui = Store.curr().ui;
+        const ts = ui.displayTables;
+        $('tablesTrigger').innerHTML = (ts===null || ts===undefined) ? `<span class="chip" style="background:var(--bg-hover); color:var(--text-secondary); border-color:transparent;">默认全选</span>` : (ts.length ? ts.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">无</span>`);
+        const vs = ui.enabledViews || [];
+        $('viewsTrigger').innerHTML = vs.length ? vs.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">未启用</span>`;
+    },
+
+    renderTabs() {
+        // Correctly handle tab close
+        $('tabsContainer').innerHTML = Store.state.docs.map(d => `<div class="tab ${d.id===Store.state.activeId?'active':''}" data-id="${d.id}">${d.title} <span class="tab-close">×</span></div>`).join('');
+    },
+
+    renderPreview() {
+        const div = $('previewArea'); div.innerHTML = '';
+        this.rendered = []; Select.clear();
+        if(!this.raw.length) { div.innerHTML = `<div style="margin:auto; text-align:center; color:var(--text-tertiary);"><div style="font-size:32px; opacity:0.5; margin-bottom:8px;">▤</div><div>无数据</div></div>`; return; }
+        
+        const ui = Store.curr().ui;
+        let list = this.raw;
+        if(ui.displayTables) list = list.filter(t=>ui.displayTables.includes(t.name));
+        
+        let joins = [];
+        if(ui.enabledViews) {
+            joins = ui.enabledViews.map(v => {
+                const cfg = Store.state.globalViews.find(g=>g.view===v);
+                return cfg ? Joiner.run(this.raw, cfg, Store.state.globalViews) : null;
+            }).filter(x=>x);
+        }
+
+        [...list, ...joins].forEach((t, tIdx) => {
+            const res = this.proc(t, ui);
+            this.rendered.push({name: t.name, ...res}); 
+            const card = createEl('div', 'table-container');
+            card.innerHTML = `<div class="table-meta"><span style="font-weight:bold; color:var(--text-main);">${t.name}</span> <span class="meta-tag">Row: ${t.rows.length}</span> <span class="meta-tag">Show: ${res.rows.length}</span></div>`;
+            const area = createEl('div', 'table-scroll-area');
+            const tbl = createEl('table'); tbl.dataset.idx = tIdx;
+            const thRow = createEl('tr');
+            res.headers.forEach(h => { const th=createEl('th'); th.textContent=h; thRow.appendChild(th); });
+            const thead = createEl('thead'); thead.appendChild(thRow); tbl.appendChild(thead);
+            const tbody = createEl('tbody');
+            res.rows.slice(0,500).forEach((r, rIdx) => {
+                const tr = createEl('tr');
+                if(r._hl) tr.className = 'highlight-row';
+                r.d.forEach((c, cIdx) => { const td=createEl('td'); td.textContent=c; td.dataset.r=rIdx; td.dataset.c=cIdx; tr.appendChild(td); });
+                tbody.appendChild(tr);
+            });
+            if(res.rows.length>500) { const tr=createEl('tr'); tr.innerHTML=`<td colspan="${res.headers.length}" style="text-align:center; color:var(--text-tertiary);">... 剩余 ${res.rows.length-500} 行 ...</td>`; tbody.appendChild(tr); }
+            tbl.appendChild(tbody); area.appendChild(tbl); card.appendChild(area); div.appendChild(card);
+        });
+    },
+
+    proc(t, ui) {
+        const r = ui.rules[t.name] || {};
+        let head = t.headers, idxs = t.headers.map((_,i)=>i);
+        if(r.focus && r.focus.length) {
+            head=[]; idxs=[];
+            r.focus.forEach(c => { const i=t.headers.indexOf(c); if(i>-1){ head.push(c); idxs.push(i); } });
+            if(!head.length) { head=t.headers; idxs=t.headers.map((_,i)=>i); }
+        }
+
+        const hMap = new Map(t.headers.map((h, i) => [h.toLowerCase(), i]));
+
+        // --- SMART FILTER LOGIC ---
+        const checkToken = (token, row) => {
+            const opMatch = token.match(/^(.+?)(!=|>=|<=|=|>|<|:)(.+)$/);
+            if (opMatch) {
+                const key = opMatch[1].toLowerCase();
+                const op = opMatch[2];
+                const val = opMatch[3].toLowerCase();
+                const idx = hMap.get(key);
+                if (idx === undefined) return false;
+                
+                let cellVal = (row[idx] || "").toLowerCase();
+                const numC = parseFloat(cellVal);
+                const numV = parseFloat(val);
+                const isNum = !isNaN(numC) && !isNaN(numV);
+
+                switch(op) {
+                    case '=': return cellVal === val; 
+                    case ':': return cellVal.includes(val); 
+                    case '!=': return cellVal !== val;
+                    case '>': return isNum && numC > numV;
+                    case '>=': return isNum && numC >= numV;
+                    case '<': return isNum && numC < numV;
+                    case '<=': return isNum && numC <= numV;
+                }
+            }
+            if (token.startsWith('/') && token.endsWith('/')) {
+                try { return new RegExp(token.slice(1, -1), 'i').test(row.join(' ')); } catch (e) { return false; }
+            }
+            return row.join(' ').toLowerCase().includes(token.toLowerCase());
+        };
+
+        const checkRule = (ruleStr, row) => {
+            if (!ruleStr) return true;
+            const tokens = ruleStr.trim().split(/\s+/);
+            return tokens.every(t => {
+                if (t.includes('|')) return t.split('|').some(st => checkToken(st, row));
+                return checkToken(t, row);
+            });
+        };
+
+        const gF = (ui.globalFilter||'');
+        const tF = (r.filter||'');
+        const hlF = (r.hl||'');
+
+        const rows = [];
+        t.rows.forEach(row => {
+            if(gF && !checkRule(gF, row)) return;
+            if(tF && !checkRule(tF, row)) return;
+            let hl = false;
+            if(ui.enableHighlight!==false && hlF && checkRule(hlF, row)) hl = true;
+            if(ui.onlyHighlighted && !hl) return;
+            rows.push({ d: idxs.map(i=>row[i]), _hl: hl });
+        });
+        return { headers: head, rows };
+    },
+
+    modal(title, html) {
+        $('modalContent').innerHTML = `<div class="panel-header" style="border-radius:8px 8px 0 0;">${title} <button class="icon-btn" onclick="document.getElementById('modalOverlay').classList.add('hidden')">×</button></div><div style="padding:16px; overflow-y:auto; flex:1;">${html}</div>`;
+        $('modalOverlay').classList.remove('hidden');
+    },
+
+    modTables() {
+        const ts = this.raw.map(t=>t.name), sel = Store.curr().ui.displayTables || ts;
+        const h = ts.map(t => `<label class="checkbox-row"><input type="checkbox" value="${t}" ${sel.includes(t)?'checked':''}><span>${t}</span></label>`).join('');
+        this.modal('选择显示表', `<div>${h}</div><div style="margin-top:16px; text-align:right;"><button class="primary" id="saveMod">确定</button></div>`);
+        $('saveMod').onclick = () => {
+            const v = Array.from(document.querySelectorAll('.checkbox-row input:checked')).map(c=>c.value);
+            Store.updateUI('displayTables', v.length===ts.length?null:v); $('modalOverlay').classList.add('hidden'); this.run();
+        };
+    },
+    modViews() {
+        const vs = Store.state.globalViews, sel = Store.curr().ui.enabledViews || [];
+        if(!vs.length) return alert('请先管理视图');
+        const h = vs.map(v => `<label class="checkbox-row"><input type="checkbox" value="${v.view}" ${sel.includes(v.view)?'checked':''}><span>${v.view}</span></label>`).join('');
+        this.modal('启用视图', `<div>${h}</div><div style="margin-top:16px; text-align:right;"><button class="primary" id="saveMod">确定</button></div>`);
+        $('saveMod').onclick = () => {
+            Store.updateUI('enabledViews', Array.from(document.querySelectorAll('.checkbox-row input:checked')).map(c=>c.value));
+            $('modalOverlay').classList.add('hidden'); this.run();
+        };
+    },
+    
+    modCols() {
+        const tName = $('targetTableSelect').value; if(!tName) return;
+        
+        let all = [];
+        const rawTable = this.raw.find(x => x.name === tName);
+        
+        if(rawTable) { all = rawTable.headers; } 
+        else if (tName.startsWith('JOIN:')) {
+            const vName = tName.replace('JOIN:', '');
+            const vCfg = Store.state.globalViews.find(v => v.view === vName);
+            if(vCfg) { const res = Joiner.run(this.raw, vCfg, Store.state.globalViews); if(res) all = res.headers; }
+        }
+        if((!all || !all.length)) { const rt = this.rendered.find(x => x.name === tName); if(rt) all = rt.headers; }
+        if(!all || !all.length) return alert('无法获取列信息');
+
+        const rule = Store.curr().ui.rules[tName] || {};
+        const cur = (rule.focus && rule.focus.length > 0) ? rule.focus : all;
+        const isFocusActive = (rule.focus && rule.focus.length > 0);
+        
+        const html = `
+            <div style="margin-bottom:10px; display:flex; gap:8px;">
+                <input id="colSearch" placeholder="搜索列名..." style="flex:1;">
+                <button class="sm" id="colAll">全选</button>
+                <button class="sm" id="colNone">全不选</button>
+            </div>
+            <div id="colList" style="max-height:400px; overflow-y:auto; border:1px solid var(--border-light); padding:8px; border-radius:4px;">
+                ${all.map(c => `<label class="checkbox-row" data-val="${c.toLowerCase()}"><input type="checkbox" value="${c}" ${!isFocusActive || cur.includes(c)?'checked':''}><span>${c}</span></label>`).join('')}
+            </div>
+            <div style="margin-top:16px; text-align:right;"><button class="primary" id="saveMod">应用</button></div>
+        `;
+        this.modal(`选择列: ${tName}`, html);
+        const list = $('colList');
+        $('colSearch').oninput = e => { const v=e.target.value.toLowerCase(); Array.from(list.children).forEach(r => r.style.display = r.dataset.val.includes(v)?'flex':'none'); };
+        $('colAll').onclick = () => Array.from(list.children).forEach(r => { if(r.style.display!=='none') r.querySelector('input').checked=true; });
+        $('colNone').onclick = () => Array.from(list.children).forEach(r => { if(r.style.display!=='none') r.querySelector('input').checked=false; });
+        $('saveMod').onclick = () => {
+            const v = Array.from(list.querySelectorAll('input:checked')).map(c=>c.value);
+            Store.updateRule(tName, 'focus', v); $('focusColsInput').value=v.join(', ');
+            $('modalOverlay').classList.add('hidden'); this.renderPreview();
+        };
+    }
+};
+
+App.init();
+</script>
+</body>
+</html>
