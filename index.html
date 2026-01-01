@@ -344,10 +344,11 @@
     </div>
 
     <!-- Relation & Status -->
-    <div style="padding:12px 16px; border-top:1px solid var(--border-light); background:var(--bg-app); min-height:100px;">
+    <div style="padding:12px 16px; border-top:1px solid var(--border-light); background:var(--bg-app); min-height:120px;">
         <label>关联条件 (ON) <button class="icon-btn sm" id="jeAddRel" style="margin-left:8px; border:1px solid var(--border-light);">+</button></label>
-        <div id="jeRelContainer" style="max-height:80px; overflow-y:auto;"></div>
-        <div style="margin-top:8px; font-size:11px; color:var(--text-tertiary);" id="jeStatus">已选输出列: 0</div>
+        <div id="jeRelContainer" style="max-height:80px; overflow-y:auto; margin-bottom:8px;"></div>
+        <div id="jeOrderList" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;"></div>
+        <div style="margin-top:4px; font-size:11px; color:var(--text-tertiary);" id="jeStatus">已选输出列: 0</div>
     </div>
 </div>
 
@@ -558,7 +559,7 @@ const Draggable = {
 
 /* Join Editor */
 const JoinEditor = {
-    state: { editIdx: -1, left: null, right: null, rels: [], lSel: [], rSel: [] },
+    state: { editIdx: -1, left: null, right: null, rels: [], lSel: [], rSel: [], order: [] },
     
     // Fixed: Ensure only Views are listed
     modManageViews() {
@@ -580,7 +581,7 @@ const JoinEditor = {
             $(`jeDel_${i}`).onclick = () => { if(confirm('删除?')) { Store.state.globalViews.splice(i,1); Store.save(); App.updSelects(); this.modManageViews(); App.run(); } };
         });
     },
-
+    
     open(editIdx = -1) {
         const p = $('joinEditorPanel'); p.classList.remove('hidden');
         this.state.editIdx = editIdx;
@@ -603,18 +604,19 @@ const JoinEditor = {
         this.state.rels = v.on ? v.on.split(',').map(s => { const p=s.split('='); return {l:p[0].trim(), r:p[1].trim()}; }) : [];
         if(this.state.rels.length === 0) this.state.rels.push({l:'', r:''});
         
-        this.state.lSel = []; this.state.rSel = [];
+        this.state.lSel = []; this.state.rSel = []; this.state.order = [];
         if(v.select) {
             v.select.split(',').forEach(s => {
                 const t = s.trim();
-                if(t.startsWith('left.')) this.state.lSel.push(t.split('.')[1]);
-                else if(t.startsWith('right.')) this.state.rSel.push(t.split('.')[1]);
-                else this.state.lSel.push(t);
+                if(t.startsWith('left.')) { const col=t.split('.')[1]; this.state.lSel.push(col); this.state.order.push({side:'l', col}); }
+                else if(t.startsWith('right.')) { const col=t.split('.')[1]; this.state.rSel.push(col); this.state.order.push({side:'r', col}); }
+                else { this.state.lSel.push(t); this.state.order.push({side:'l', col:t}); }
             });
         }
         
         this.refreshColumns();
         this.renderRels();
+        this.renderSelectedOrder();
         this.updateStatus();
     },
     
@@ -624,8 +626,15 @@ const JoinEditor = {
         const lCols = App.getCols(lName);
         const rCols = App.getCols(rName);
         
+        // 清理不存在的列，保持顺序状态同步
+        this.state.lSel = this.state.lSel.filter(c => lCols.includes(c));
+        this.state.rSel = this.state.rSel.filter(c => rCols.includes(c));
+        this.syncOrderFromSelections(lCols, rCols);
+        
         this.renderColList('jeLList', lCols, this.state.lSel, 'l');
         this.renderColList('jeRList', rCols, this.state.rSel, 'r');
+        this.renderSelectedOrder();
+        this.updateStatus();
     },
     
     renderColList(id, cols, selected, side) {
@@ -639,12 +648,7 @@ const JoinEditor = {
         $(id).innerHTML = html || '<div style="padding:8px; color:#999;">无字段</div>';
         
         $(id).querySelectorAll('input').forEach(chk => {
-            chk.onchange = () => {
-                const arr = side === 'l' ? this.state.lSel : this.state.rSel;
-                if(chk.checked) { if(!arr.includes(chk.value)) arr.push(chk.value); }
-                else { const idx = arr.indexOf(chk.value); if(idx>-1) arr.splice(idx,1); }
-                this.updateStatus();
-            };
+            chk.onchange = () => this.setSelection(side, chk.value, chk.checked);
         });
     },
     
@@ -681,18 +685,89 @@ const JoinEditor = {
         const id = side === 'l' ? 'jeLList' : 'jeRList';
         const inputs = $(id).querySelectorAll('input');
         const allChecked = Array.from(inputs).every(i => i.checked);
-        const arr = side === 'l' ? this.state.lSel : this.state.rSel;
-        
         inputs.forEach(i => {
             i.checked = !allChecked;
-            if(!allChecked) { if(!arr.includes(i.value)) arr.push(i.value); }
-            else { const idx = arr.indexOf(i.value); if(idx>-1) arr.splice(idx,1); }
+            this.setSelection(side, i.value, i.checked, false);
         });
+        this.syncOrderFromSelections(App.getCols($('jeLeftTable').value), App.getCols($('jeRightTable').value));
+        this.renderSelectedOrder();
         this.updateStatus();
     },
     
     updateStatus() {
         $('jeStatus').textContent = `已选输出列: ${this.state.lSel.length + this.state.rSel.length} (Left: ${this.state.lSel.length}, Right: ${this.state.rSel.length})`;
+    },
+    
+    setSelection(side, col, checked, appendToEnd=true) {
+        const arr = side === 'l' ? this.state.lSel : this.state.rSel;
+        const idx = arr.indexOf(col);
+        if(checked) {
+            if(idx === -1) arr.push(col);
+        } else {
+            if(idx > -1) arr.splice(idx,1);
+        }
+        this.syncOrderFromSelections(App.getCols($('jeLeftTable').value), App.getCols($('jeRightTable').value), appendToEnd ? {side, col, checked} : null);
+        this.renderSelectedOrder();
+        this.updateStatus();
+    },
+    
+    syncOrderFromSelections(lCols, rCols, lastChange=null) {
+        // 保留仍被选中的顺序，删除已取消的
+        this.state.order = this.state.order.filter(o => {
+            const list = o.side === 'l' ? this.state.lSel : this.state.rSel;
+            return list.includes(o.col);
+        });
+        const seen = new Set(this.state.order.map(o => `${o.side}:${o.col}`));
+        
+        // 如果最近一次是选中，则直接追加到末尾，保持用户期望顺序
+        if(lastChange && lastChange.checked) {
+            const key = `${lastChange.side}:${lastChange.col}`;
+            if(!seen.has(key)) {
+                this.state.order.push({ side:lastChange.side, col:lastChange.col });
+                seen.add(key);
+            }
+        }
+        
+        const appendMissing = (side, arr, cols=[]) => {
+            arr.forEach(c => {
+                const key = `${side}:${c}`;
+                if(!seen.has(key) && (!cols.length || cols.includes(c))) {
+                    this.state.order.push({ side, col:c });
+                    seen.add(key);
+                }
+            });
+        };
+        appendMissing('l', this.state.lSel, lCols || []);
+        appendMissing('r', this.state.rSel, rCols || []);
+    },
+    
+    renderSelectedOrder() {
+        const box = $('jeOrderList'); if(!box) return;
+        if(!this.state.order.length) {
+            box.innerHTML = '<div style="font-size:11px; color:var(--text-tertiary);">未选择输出列</div>';
+            return;
+        }
+        box.innerHTML = this.state.order.map((o, i) => `
+            <div class="chip" data-idx="${i}" style="display:flex; align-items:center; gap:4px;">
+                <span>${o.side==='l'?'左':'右'}.${o.col}</span>
+                <button class="icon-btn sm" data-move="-1" title="上移" style="width:20px; height:20px;">↑</button>
+                <button class="icon-btn sm" data-move="1" title="下移" style="width:20px; height:20px;">↓</button>
+            </div>
+        `).join('');
+        box.querySelectorAll('button[data-move]').forEach(btn => {
+            btn.onclick = () => {
+                const idx = +btn.closest('[data-idx]').dataset.idx;
+                this.moveOrder(idx, +btn.dataset.move);
+            };
+        });
+    },
+    
+    moveOrder(idx, delta) {
+        const target = idx + delta;
+        if(target < 0 || target >= this.state.order.length) return;
+        const [item] = this.state.order.splice(idx, 1);
+        this.state.order.splice(target, 0, item);
+        this.renderSelectedOrder();
     },
     
     save() {
@@ -704,10 +779,8 @@ const JoinEditor = {
         document.querySelectorAll('.je-rel-r').forEach((s,i) => this.state.rels[i].r = s.value);
 
         const onStr = this.state.rels.map(r => `${r.l}=${r.r}`).join(',');
-        const selStr = [
-            ...this.state.lSel.map(c => `left.${c}`),
-            ...this.state.rSel.map(c => `right.${c}`)
-        ].join(',');
+        // 根据顺序列表生成 select
+        const selStr = this.state.order.map(o => `${o.side==='l'?'left':'right'}.${o.col}`).join(',');
         
         const nv = {
             view: name,
@@ -989,9 +1062,16 @@ validflag Time      Level   Message                 Code
 
     updChips() {
         const ui = Store.curr().ui;
-        const ts = ui.displayTables;
-        $('tablesTrigger').innerHTML = (ts===null || ts===undefined) ? `<span class="chip" style="background:var(--bg-hover); color:var(--text-secondary); border-color:transparent;">默认全选</span>` : (ts.length ? ts.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">无</span>`);
-        const vs = ui.enabledViews || [];
+        // 只显示表/视图名称，过滤掉误保存的字段名
+        const tableNames = this.raw.map(t => t.name);
+        const tsRaw = ui.displayTables;
+        const ts = (tsRaw===null || tsRaw===undefined) ? null : (tsRaw || []).filter(n => tableNames.includes(n));
+        if(tsRaw && ts && ts.length !== tsRaw.length) Store.updateUI('displayTables', ts.length ? ts : null);
+        $('tablesTrigger').innerHTML = (ts===null) ? `<span class="chip" style="background:var(--bg-hover); color:var(--text-secondary); border-color:transparent;">默认全显</span>` : (ts.length ? ts.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">无</span>`);
+        const viewNames = Store.state.globalViews.map(v => v.view);
+        const vsRaw = ui.enabledViews || [];
+        const vs = vsRaw.filter(v => viewNames.includes(v));
+        if(vs.length !== vsRaw.length) Store.updateUI('enabledViews', vs);
         $('viewsTrigger').innerHTML = vs.length ? vs.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">未启用</span>`;
     },
 
@@ -1123,7 +1203,11 @@ validflag Time      Level   Message                 Code
     modViews() {
         const vs = Store.state.globalViews, sel = Store.curr().ui.enabledViews || [];
         if(!vs.length) return alert('请先管理视图');
-        const h = vs.map(v => `<label class="checkbox-row"><input type="checkbox" value="${v.view}" ${sel.includes(v.view)?'checked':''}><span>${v.view}</span></label>`).join('');
+        const h = vs.map(v => {
+            const name = v.view || '(未命名视图)';
+            const meta = (v.left && v.right) ? `<span style="font-size:11px; color:var(--text-tertiary); margin-left:6px;">${v.left} ⇔ ${v.right}</span>` : '';
+            return `<label class="checkbox-row"><input type="checkbox" value="${name}" ${sel.includes(name)?'checked':''}><span style="font-weight:600; color:var(--text-main);">${name}</span>${meta}</label>`;
+        }).join('');
         this.modal('启用视图', `<div>${h}</div><div style="margin-top:16px; text-align:right;"><button class="primary" id="saveMod">确定</button></div>`);
         $('saveMod').onclick = () => {
             Store.updateUI('enabledViews', Array.from(document.querySelectorAll('.checkbox-row input:checked')).map(c=>c.value));
