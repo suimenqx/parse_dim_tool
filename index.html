@@ -396,7 +396,7 @@ const Exporter = {
     },
     getTimestamp() {
         const now = new Date(); const pad = n => String(n).padStart(2,'0');
-        return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+        return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     },
     download(filename, content, type='text/plain') {
         const blob = content instanceof Blob ? content : new Blob([content], {type});
