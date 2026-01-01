@@ -1066,7 +1066,6 @@ validflag Time      Level   Message                 Code
         const tableNames = this.raw.map(t => t.name);
         const tsRaw = ui.displayTables;
         const ts = (tsRaw===null || tsRaw===undefined) ? null : (tsRaw || []).filter(n => tableNames.includes(n));
-        if(tsRaw && ts && ts.length !== tsRaw.length) Store.updateUI('displayTables', ts.length ? ts : null);
         $('tablesTrigger').innerHTML = (ts===null) ? `<span class="chip" style="background:var(--bg-hover); color:var(--text-secondary); border-color:transparent;">默认全显</span>` : (ts.length ? ts.map(n=>`<span class="chip">${n}</span>`).join('') : `<span class="placeholder">无</span>`);
         const viewNames = Store.state.globalViews.map(v => v.view);
         const vsRaw = ui.enabledViews || [];
@@ -1192,12 +1191,16 @@ validflag Time      Level   Message                 Code
     },
 
     modTables() {
-        const ts = this.raw.map(t=>t.name), sel = Store.curr().ui.displayTables || ts;
+        const ts = this.raw.map(t=>t.name);
+        const selSaved = Store.curr().ui.displayTables;
+        const sel = (selSaved===null || selSaved===undefined) ? ts : selSaved;
         const h = ts.map(t => `<label class="checkbox-row"><input type="checkbox" value="${t}" ${sel.includes(t)?'checked':''}><span>${t}</span></label>`).join('');
         this.modal('选择显示表', `<div>${h}</div><div style="margin-top:16px; text-align:right;"><button class="primary" id="saveMod">确定</button></div>`);
         $('saveMod').onclick = () => {
             const v = Array.from(document.querySelectorAll('.checkbox-row input:checked')).map(c=>c.value);
-            Store.updateUI('displayTables', v.length===ts.length?null:v); $('modalOverlay').classList.add('hidden'); this.run();
+            // v.length===ts.length 但 ts 为空时，保持空数组代表“全不选”
+            const next = (v.length===ts.length && ts.length>0) ? null : v;
+            Store.updateUI('displayTables', next); $('modalOverlay').classList.add('hidden'); this.run();
         };
     },
     modViews() {
