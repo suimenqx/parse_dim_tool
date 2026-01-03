@@ -2033,10 +2033,81 @@ validflag Time      Level   Message                 Code
                 try {
                     const d = JSON.parse(evt.target.result);
                     if(d.kind !== 'table-tool-config') throw new Error();
-                    if(d.globalViews) Store.state.globalViews = d.globalViews;
-                    if(d.docs) d.docs.forEach(x => { const t = Store.state.docs.find(y=>y.id===x.id||y.title===x.title); if(t) t.ui=x.ui; });
-                    Store.save(); App.loadDoc(); Toast.show('配置已更新');
-                } catch(e){ alert('格式错误'); }
+
+                    // 更新全局视图
+                    if(d.globalViews) {
+                        const oldCount = Store.state.globalViews.length;
+                        Store.state.globalViews = d.globalViews;
+                        Toast.show(`全局视图已更新 (${oldCount} → ${d.globalViews.length} 个)`, false, 2000);
+                    }
+
+                    // 更新文档配置
+                    if(d.docs && d.docs.length > 0) {
+                        let appliedCount = 0;
+                        let ignoredDocs = [];
+                        let createdDocs = [];
+
+                        d.docs.forEach(x => {
+                            // 优先使用 title 匹配（更符合用户预期），如果 title 不存在才用 id 匹配
+                            let t = Store.state.docs.find(y => y.title === x.title);
+                            if(!t) t = Store.state.docs.find(y => y.id === x.id);
+
+                            if(t) {
+                                // 匹配到文档，更新配置
+                                t.ui = x.ui;
+                                appliedCount++;
+                            } else {
+                                // 没有匹配到，记录下来
+                                ignoredDocs.push(x.title || x.id);
+                            }
+                        });
+
+                        // 如果有被忽略的配置，询问用户是否创建新文档
+                        if(ignoredDocs.length > 0) {
+                            const msg = `配置导入完成：\n• 已应用 ${appliedCount} 个文档的配置\n• ${ignoredDocs.length} 个配置无法匹配（${ignoredDocs.slice(0, 3).join(', ')}${ignoredDocs.length > 3 ? '...' : ''}）\n\n是否为这些配置创建新文档？`;
+
+                            if(confirm(msg)) {
+                                ignoredDocs.forEach((docName, idx) => {
+                                    const config = d.docs.find(dc => (dc.title === docName) || (dc.id === docName));
+                                    if(config) {
+                                        const newDoc = {
+                                            id: Date.now().toString() + '_' + idx,
+                                            title: config.title,
+                                            raw: '',
+                                            ui: config.ui
+                                        };
+                                        Store.state.docs.push(newDoc);
+                                        createdDocs.push(config.title);
+                                    }
+                                });
+
+                                Store.save();
+                                App.renderTabs();
+                                App.loadDoc();
+
+                                if(createdDocs.length > 0) {
+                                    Toast.show(`配置已更新，新增 ${createdDocs.length} 个文档`, false, 3000);
+                                }
+                            } else {
+                                Store.save();
+                                App.loadDoc();
+                                Toast.show(`配置已更新（应用了 ${appliedCount} 个文档）`, false, 2000);
+                            }
+                        } else {
+                            // 所有配置都成功应用
+                            Store.save();
+                            App.loadDoc();
+                            Toast.show(`配置已更新（应用了 ${appliedCount} 个文档）`, false, 2000);
+                        }
+                    } else {
+                        Store.save();
+                        App.loadDoc();
+                        Toast.show('配置已更新');
+                    }
+                } catch(e) {
+                    console.error(e);
+                    alert('配置文件格式错误，请检查文件是否完整');
+                }
                 e.target.value = '';
             };
             r.readAsText(f);
