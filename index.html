@@ -467,13 +467,11 @@
                 </div>
                 <div>
                     <label>左表 (Source A)</label>
-                    <input type="text" id="jeLeftTableSearch" placeholder="搜索表名..." style="width:100%; margin-bottom:4px; font-size:12px;">
-                    <select id="jeLeftTable" size="3" style="height:auto;"></select>
+                    <select id="jeLeftTable"></select>
                 </div>
                 <div>
                     <label>右表 (Source B)</label>
-                    <input type="text" id="jeRightTableSearch" placeholder="搜索表名..." style="width:100%; margin-bottom:4px; font-size:12px;">
-                    <select id="jeRightTable" size="3" style="height:auto;"></select>
+                    <select id="jeRightTable"></select>
                 </div>
             </div>
             <div class="join-grid">
@@ -1304,7 +1302,7 @@ const JoinEditor = {
 
         $('jeType').value = v.type;
 
-        // 构建表选项（分组显示）
+        // 构建表选项（显示字段数量）
         const buildTableOptions = () => {
             const allTables = App.getAvailableTables();
             const rawTables = App.raw.map(t => t.name);
@@ -1332,25 +1330,6 @@ const JoinEditor = {
 
         if (v.right) $('jeRightTable').value = v.right;
         else if ($('jeRightTable').options.length > 0) $('jeRightTable').selectedIndex = 0;
-
-        // 表搜索功能
-        const setupTableSearch = (searchId, selectId) => {
-            const searchInput = $(searchId);
-            const select = $(selectId);
-            if(!searchInput || !select) return;
-
-            searchInput.oninput = () => {
-                const filter = searchInput.value.toLowerCase().trim();
-                const options = select.querySelectorAll('option');
-                options.forEach(opt => {
-                    const match = !filter || opt.text.toLowerCase().includes(filter);
-                    opt.style.display = match ? '' : 'none';
-                });
-            };
-        };
-
-        setupTableSearch('jeLeftTableSearch', 'jeLeftTable');
-        setupTableSearch('jeRightTableSearch', 'jeRightTable');
 
         this.state.rels = v.on ? v.on.split(',').map(s => { const p=s.split('='); return {l:p[0].trim(), r:p[1].trim()}; }) : [];
         if(this.state.rels.length === 0) this.state.rels.push({l:'', r:''});
