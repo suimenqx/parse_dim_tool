@@ -999,28 +999,76 @@ const JoinEditor = {
     // Fixed: Ensure only Views are listed
     modManageViews() {
         const vs = Store.state.globalViews;
-        const list = vs.map((v,i) => {
-            const stamp = this.formatTime(v.updatedAt || v.createdAt);
-            const meta = stamp ? `${v.left} | ${v.right} · ${stamp}` : `${v.left} | ${v.right}`;
-            return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; border:1px solid var(--border-light); margin-bottom:8px; border-radius:4px;">
-                <div><div style="font-weight:600; color:var(--primary);">${this.escapeHtml(v.view)}</div><div style="font-size:11px; color:var(--text-secondary);">${this.escapeHtml(meta)}</div></div>
-                <div class="flex gap-2" id="jeActions_${i}">
-                    <button class="sm" id="jeEdit_${i}">编辑</button>
-                    <button class="sm" id="jeCopy_${i}">复制</button>
-                    <button class="sm" id="jeExport_${i}">导出</button>
-                    <button class="sm danger" id="jeDel_${i}">删除</button>
-                </div>
-                <div class="flex gap-2" id="jeConfirm_${i}" style="display:none; align-items:center;">
-                    <span style="font-size:12px; color:var(--text-secondary);">确认删除？</span>
-                    <button class="sm" id="jeDelCancel_${i}">取消</button>
-                    <button class="sm danger" id="jeDelOk_${i}">删除</button>
-                </div>
-            </div>`;
-        }).join('');
+        const getFieldCount = (select) => (select || '').split(',').filter(Boolean).length;
+        const joinTypeLabel = { 'inner': 'Inner Join', 'left': 'Left Join' };
+
+        const renderList = (filterText = '') => {
+            const filtered = vs.map((v, i) => ({ ...v, originalIndex: i }))
+                .filter(v => {
+                    if (!filterText) return true;
+                    const searchLower = filterText.toLowerCase();
+                    return v.view.toLowerCase().includes(searchLower) ||
+                           v.left.toLowerCase().includes(searchLower) ||
+                           v.right.toLowerCase().includes(searchLower) ||
+                           (v.on || '').toLowerCase().includes(searchLower);
+                });
+
+            if (filtered.length === 0) {
+                return filterText
+                    ? '<div style="padding:20px; color:#999; text-align:center;">无匹配视图</div>'
+                    : '<div style="padding:20px; color:#999; text-align:center;">暂无视图</div>';
+            }
+
+            return filtered.map((v, idx) => {
+                const i = v.originalIndex;
+                const stamp = this.formatTime(v.updatedAt || v.createdAt);
+                const fieldCount = getFieldCount(v.select);
+                const joinLabel = joinTypeLabel[v.type] || 'Inner Join';
+                const meta = stamp
+                    ? `${joinLabel} · ${v.left} | ${v.right} · ${fieldCount}列 · ${stamp}`
+                    : `${joinLabel} · ${v.left} | ${v.right} · ${fieldCount}列`;
+
+                return `
+                <div class="view-item" data-index="${i}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border:1px solid var(--border-light); margin-bottom:8px; border-radius:6px; background:var(--bg-card);">
+                    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                        <input type="checkbox" class="view-checkbox" data-index="${i}" style="flex-shrink:0;">
+                        <div style="min-width:0; flex:1;">
+                            <div style="font-weight:600; color:var(--primary); margin-bottom:2px;">${this.escapeHtml(v.view)}</div>
+                            <div style="font-size:11px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(meta)}</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2" id="jeActions_${i}" style="flex-shrink:0;">
+                        <button class="sm" id="jeEdit_${i}" title="编辑视图">✎</button>
+                        <button class="sm" id="jeCopy_${i}" title="复制视图">❐</button>
+                        <button class="sm" id="jeExport_${i}" title="导出视图">⬇</button>
+                        <button class="sm danger" id="jeDel_${i}" title="删除视图">×</button>
+                    </div>
+                    <div class="flex gap-2" id="jeConfirm_${i}" style="display:none; align-items:center;">
+                        <span style="font-size:12px; color:var(--text-secondary);">确认删除？</span>
+                        <button class="sm" id="jeDelCancel_${i}">取消</button>
+                        <button class="sm danger" id="jeDelOk_${i}">删除</button>
+                    </div>
+                </div>`;
+            }).join('');
+        };
 
         App.modal('管理全局视图', `
-            <div style="max-height:300px; overflow-y:auto; margin-bottom:12px;">${list || '<div style="padding:10px; color:#999; text-align:center;">暂无视图</div>'}</div>
+            <div style="margin-bottom:12px;">
+                <input type="text" id="jeViewSearch" placeholder="🔍 搜索视图名称、表名或关联条件..." style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <label class="flex items-center gap-2" style="font-size:12px; cursor:pointer;">
+                    <input type="checkbox" id="jeViewSelectAll" style="cursor:pointer;">
+                    <span>全选</span>
+                </label>
+                <div class="flex gap-2">
+                    <button class="sm" id="jeBatchExport" disabled>⬇ 批量导出</button>
+                    <button class="sm danger" id="jeBatchDelete" disabled>× 批量删除</button>
+                </div>
+            </div>
+            <div id="viewList" style="max-height:300px; overflow-y:auto; margin-bottom:12px;">
+                ${renderList()}
+            </div>
             <div style="margin-bottom:12px;">
                 <label>粘贴配置 (JSON)</label>
                 <textarea id="jePaste" style="height:90px;" placeholder="{
@@ -1028,43 +1076,131 @@ const JoinEditor = {
 }"></textarea>
                 <div class="flex gap-2" style="margin-top:8px;">
                     <button class="sm" id="jePasteBtn">导入</button>
-                    <button class="primary w-full" id="jeAddNew">新增视图</button>
+                    <button class="primary w-full" id="jeAddNew">＋ 新增视图</button>
                 </div>
             </div>
         `);
 
+        // 搜索过滤功能
+        const searchInput = $('jeViewSearch');
+        if (searchInput) {
+            searchInput.oninput = () => {
+                const filterText = searchInput.value.trim();
+                $('viewList').innerHTML = renderList(filterText);
+                this.bindViewActions(vs);
+                updateBatchButtons();
+            };
+        }
+
+        // 全选/取消全选
+        const selectAllCheckbox = $('jeViewSelectAll');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.onchange = () => {
+                const checkboxes = document.querySelectorAll('.view-checkbox');
+                checkboxes.forEach(cb => {
+                    cb.checked = selectAllCheckbox.checked;
+                });
+                updateBatchButtons();
+            };
+        }
+
+        // 更新批量操作按钮状态
+        const updateBatchButtons = () => {
+            const selectedCount = document.querySelectorAll('.view-checkbox:checked').length;
+            const batchDeleteBtn = $('jeBatchDelete');
+            const batchExportBtn = $('jeBatchExport');
+            if (batchDeleteBtn) batchDeleteBtn.disabled = selectedCount === 0;
+            if (batchExportBtn) batchExportBtn.disabled = selectedCount === 0;
+        };
+
+        // 批量删除
+        const batchDeleteBtn = $('jeBatchDelete');
+        if (batchDeleteBtn) {
+            batchDeleteBtn.onclick = () => {
+                const selectedCheckboxes = document.querySelectorAll('.view-checkbox:checked');
+                if (selectedCheckboxes.length === 0) return;
+                const selectedIndices = Array.from(selectedCheckboxes).map(cb => parseInt(cb.dataset.index)).sort((a, b) => b - a);
+                if (confirm(`确定删除选中的 ${selectedIndices.length} 个视图吗？`)) {
+                    selectedIndices.forEach(idx => {
+                        Store.state.globalViews.splice(idx, 1);
+                    });
+                    Store.save();
+                    App.updSelects();
+                    this.modManageViews();
+                    App.run();
+                    Toast.show(`已删除 ${selectedIndices.length} 个视图`);
+                }
+            };
+        }
+
+        // 批量导出
+        const batchExportBtn = $('jeBatchExport');
+        if (batchExportBtn) {
+            batchExportBtn.onclick = () => {
+                const selectedCheckboxes = document.querySelectorAll('.view-checkbox:checked');
+                if (selectedCheckboxes.length === 0) return;
+                const selectedViews = Array.from(selectedCheckboxes).map(cb => Store.state.globalViews[parseInt(cb.dataset.index)]);
+                Exporter.toJson({ kind: 'join-views', views: selectedViews }, `join_views_${Date.now()}`);
+                Toast.show(`已导出 ${selectedViews.length} 个视图`);
+            };
+        }
+
+        // 绑定单个视图的操作按钮
+        this.bindViewActions = (views) => {
+            views.forEach((v, i) => {
+                const editBtn = $(`jeEdit_${i}`);
+                const copyBtn = $(`jeCopy_${i}`);
+                const exportBtn = $(`jeExport_${i}`);
+                const delBtn = $(`jeDel_${i}`);
+                const delCancelBtn = $(`jeDelCancel_${i}`);
+                const delOkBtn = $(`jeDelOk_${i}`);
+                const checkbox = document.querySelector(`.view-checkbox[data-index="${i}"]`);
+
+                if (editBtn) editBtn.onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(i); };
+                if (copyBtn) copyBtn.onclick = () => {
+                    const name = this.makeUniqueName(`${v.view}_copy`);
+                    const nv = { ...v, view: name, createdAt: Date.now(), updatedAt: Date.now() };
+                    Store.state.globalViews.push(nv);
+                    Store.save();
+                    App.updSelects();
+                    this.modManageViews();
+                    Toast.show('已复制');
+                };
+                if (exportBtn) exportBtn.onclick = () => Exporter.toJson({ kind: 'join-view', view: v }, `join_${v.view}`);
+                if (delBtn) delBtn.onclick = () => {
+                    const actions = $(`jeActions_${i}`);
+                    const confirmRow = $(`jeConfirm_${i}`);
+                    if (actions) actions.style.display = 'none';
+                    if (confirmRow) confirmRow.style.display = 'flex';
+                };
+                if (delCancelBtn) delCancelBtn.onclick = () => {
+                    const actions = $(`jeActions_${i}`);
+                    const confirmRow = $(`jeConfirm_${i}`);
+                    if (actions) actions.style.display = 'flex';
+                    if (confirmRow) confirmRow.style.display = 'none';
+                };
+                if (delOkBtn) delOkBtn.onclick = () => {
+                    Store.state.globalViews.splice(i, 1);
+                    Store.save();
+                    App.updSelects();
+                    this.modManageViews();
+                    App.run();
+                };
+
+                // 复选框变化时更新批量按钮状态
+                if (checkbox) {
+                    checkbox.onchange = updateBatchButtons;
+                }
+            });
+        };
+
+        // 初始绑定
+        this.bindViewActions(vs);
+
+        // 其他按钮绑定
         $('jeAddNew').onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(-1); };
         const pasteBtn = $('jePasteBtn');
-        if(pasteBtn) pasteBtn.onclick = () => this.importViewsFromText($('jePaste').value || '');
-
-        vs.forEach((v,i) => {
-            $(`jeEdit_${i}`).onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(i); };
-            $(`jeCopy_${i}`).onclick = () => {
-                const name = this.makeUniqueName(`${v.view}_copy`);
-                const nv = { ...v, view: name, createdAt: Date.now(), updatedAt: Date.now() };
-                Store.state.globalViews.push(nv); Store.save(); App.updSelects(); this.modManageViews(); Toast.show('已复制');
-            };
-            $(`jeExport_${i}`).onclick = () => Exporter.toJson({ kind:'join-view', view: v }, `join_${v.view}`);
-            $(`jeDel_${i}`).onclick = () => {
-                const actions = $(`jeActions_${i}`);
-                const confirmRow = $(`jeConfirm_${i}`);
-                if(actions) actions.style.display = 'none';
-                if(confirmRow) confirmRow.style.display = 'flex';
-            };
-            $(`jeDelCancel_${i}`).onclick = () => {
-                const actions = $(`jeActions_${i}`);
-                const confirmRow = $(`jeConfirm_${i}`);
-                if(actions) actions.style.display = 'flex';
-                if(confirmRow) confirmRow.style.display = 'none';
-            };
-            $(`jeDelOk_${i}`).onclick = () => {
-                Store.state.globalViews.splice(i,1);
-                Store.save();
-                App.updSelects();
-                this.modManageViews();
-                App.run();
-            };
-        });
+        if (pasteBtn) pasteBtn.onclick = () => this.importViewsFromText($('jePaste').value || '');
     },
 
     normalizeView(v) {
