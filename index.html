@@ -463,14 +463,17 @@
                 <div>
                     <label>视图名称</label>
                     <input type="text" id="jeName" placeholder="e.g. StockReport">
+                    <div id="jeNameWarn" style="font-size:11px; margin-top:4px; display:none;"></div>
                 </div>
                 <div>
                     <label>左表 (Source A)</label>
-                    <select id="jeLeftTable"></select>
+                    <input type="text" id="jeLeftTableSearch" placeholder="搜索表名..." style="width:100%; margin-bottom:4px; font-size:12px;">
+                    <select id="jeLeftTable" size="3" style="height:auto;"></select>
                 </div>
                 <div>
                     <label>右表 (Source B)</label>
-                    <select id="jeRightTable"></select>
+                    <input type="text" id="jeRightTableSearch" placeholder="搜索表名..." style="width:100%; margin-bottom:4px; font-size:12px;">
+                    <select id="jeRightTable" size="3" style="height:auto;"></select>
                 </div>
             </div>
             <div class="join-grid">
@@ -497,7 +500,8 @@
                                 <option value="inner">Inner Join · 仅匹配</option>
                                 <option value="left">Left Join · 保留左表</option>
                             </select>
-                            <button class="sm" id="jeAutoRel">自动匹配</button>
+                            <button class="sm" id="jeAutoRelReplace" title="清空现有条件，使用自动匹配">替换匹配</button>
+                            <button class="sm" id="jeAutoRelAppend" title="保留现有条件，追加新的匹配">追加匹配</button>
                             <button class="sm" id="jeAddRel">添加条件</button>
                         </div>
                     </div>
@@ -1263,9 +1267,63 @@ const JoinEditor = {
         this.state.titleBase = editIdx > -1 ? '编辑全局视图' : '新增全局视图';
         $('jeTitle').textContent = this.state.titleBase;
         $('jeName').value = v.view;
+
+        // 视图名称实时冲突检查
+        const nameWarn = $('jeNameWarn');
+        if(nameWarn) {
+            const checkName = () => {
+                const name = $('jeName').value.trim();
+                if(!name) {
+                    nameWarn.style.display = 'none';
+                    $('jeName').style.borderColor = 'var(--border)';
+                    return;
+                }
+                const conflict = this.isNameConflict(name, editIdx);
+                if(conflict) {
+                    nameWarn.textContent = '⚠ 名称与已有表/视图冲突';
+                    nameWarn.style.color = 'var(--text-secondary)';
+                    nameWarn.style.display = 'block';
+                    $('jeName').style.borderColor = '#ef4444';
+                } else {
+                    nameWarn.textContent = '✓ 名称可用';
+                    nameWarn.style.color = '#22c55e';
+                    nameWarn.style.display = 'block';
+                    $('jeName').style.borderColor = '#22c55e';
+                }
+                this.markDirty();
+                this.updateSaveState();
+            };
+
+            // 移除旧的监听器（如果有）
+            const newNameInput = $('jeName').cloneNode(true);
+            $('jeName').parentNode.replaceChild(newNameInput, $('jeName'));
+            newNameInput.oninput = checkName;
+            // 初始检查
+            if(v.view) setTimeout(checkName, 0);
+        }
+
         $('jeType').value = v.type;
 
-        const opts = App.getAvailableTables().map(n => `<option value="${n}">${n}</option>`).join('');
+        // 构建表选项（分组显示）
+        const buildTableOptions = () => {
+            const allTables = App.getAvailableTables();
+            const rawTables = App.raw.map(t => t.name);
+            const viewTables = allTables.filter(n => n.startsWith('JOIN:'));
+
+            const rawOpts = rawTables.map(n => {
+                const cols = App.getCols(n);
+                return `<option value="${this.escapeHtml(n)}">${this.escapeHtml(n)} (${cols.length}列)</option>`;
+            }).join('');
+
+            const viewOpts = viewTables.map(n => {
+                const cols = App.getCols(n);
+                return `<option value="${this.escapeHtml(n)}">${this.escapeHtml(n)} (${cols.length}列)</option>`;
+            }).join('');
+
+            return rawOpts + viewOpts;
+        };
+
+        const opts = buildTableOptions();
         $('jeLeftTable').innerHTML = opts;
         $('jeRightTable').innerHTML = opts;
 
@@ -1274,6 +1332,25 @@ const JoinEditor = {
 
         if (v.right) $('jeRightTable').value = v.right;
         else if ($('jeRightTable').options.length > 0) $('jeRightTable').selectedIndex = 0;
+
+        // 表搜索功能
+        const setupTableSearch = (searchId, selectId) => {
+            const searchInput = $(searchId);
+            const select = $(selectId);
+            if(!searchInput || !select) return;
+
+            searchInput.oninput = () => {
+                const filter = searchInput.value.toLowerCase().trim();
+                const options = select.querySelectorAll('option');
+                options.forEach(opt => {
+                    const match = !filter || opt.text.toLowerCase().includes(filter);
+                    opt.style.display = match ? '' : 'none';
+                });
+            };
+        };
+
+        setupTableSearch('jeLeftTableSearch', 'jeLeftTable');
+        setupTableSearch('jeRightTableSearch', 'jeRightTable');
 
         this.state.rels = v.on ? v.on.split(',').map(s => { const p=s.split('='); return {l:p[0].trim(), r:p[1].trim()}; }) : [];
         if(this.state.rels.length === 0) this.state.rels.push({l:'', r:''});
@@ -1437,15 +1514,36 @@ const JoinEditor = {
         this.renderRels();
         this.updateAll();
     },
-    autoMatchRels() {
+    autoMatchRels(append = false) {
         const lCols = App.getCols($('jeLeftTable').value);
         const rCols = App.getCols($('jeRightTable').value);
         const lSet = new Set(lCols);
         const common = rCols.filter(c => lSet.has(c));
         if(!common.length) return Toast.show('无同名字段可匹配', true);
-        const hasExisting = this.state.rels.some(r => r.l || r.r);
-        if(hasExisting && !confirm('将覆盖现有关联条件，继续？')) return;
-        this.state.rels = common.map(c => ({ l: c, r: c }));
+
+        if(append) {
+            // 追加模式：只添加不存在的关系
+            let added = 0;
+            common.forEach(c => {
+                const exists = this.state.rels.some(r =>
+                    (r.l === c && r.r === c) || (r.l === c && r.r === c)
+                );
+                if(!exists) {
+                    this.state.rels.push({ l: c, r: c });
+                    added++;
+                }
+            });
+            if(added === 0) {
+                return Toast.show('所有同名字段已关联', false, 2000);
+            }
+            Toast.show(`已追加 ${added} 个关联条件`, false, 2000);
+        } else {
+            // 替换模式：清空后添加
+            const hasExisting = this.state.rels.some(r => r.l || r.r);
+            if(hasExisting && !confirm('将覆盖现有关联条件，继续？')) return;
+            this.state.rels = common.map(c => ({ l: c, r: c }));
+        }
+
         this.markDirty();
         this.renderRels();
         this.updateAll();
@@ -2256,7 +2354,8 @@ validflag Time      Level   Message                 Code
         $('jeSave').onclick = () => JoinEditor.save();
         $('jeSaveFooter').onclick = () => JoinEditor.save();
         $('jeAddRel').onclick = () => JoinEditor.addRel();
-        $('jeAutoRel').onclick = () => JoinEditor.autoMatchRels();
+        $('jeAutoRelReplace').onclick = () => JoinEditor.autoMatchRels(false);
+        $('jeAutoRelAppend').onclick = () => JoinEditor.autoMatchRels(true);
         $('jeOrderRebuild').onclick = () => JoinEditor.rebuildOrder();
         $('jeOrderClear').onclick = () => JoinEditor.clearOrder();
         $('jeOrderLeftOnly').onclick = () => JoinEditor.keepOnly('l');
