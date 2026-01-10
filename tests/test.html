@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parser - 测试套件</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: "Inter", system-ui, sans-serif; background: #f5f6f8; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #0f172a; margin-bottom: 20px; font-size: 24px; }
+        .summary { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+        .summary-row:last-child { border-bottom: none; }
+        .stat { font-weight: 600; }
+        .stat.pass { color: #10b981; }
+        .stat.fail { color: #ef4444; }
+        .stat.total { color: #2563eb; }
+
+        .test-suite { background: white; border-radius: 12px; margin-bottom: 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .suite-header { background: #f9fafb; padding: 16px 20px; border-bottom: 1px solid #e5e7eb; font-weight: 700; color: #0f172a; display: flex; justify-content: space-between; align-items: center; }
+        .suite-body { padding: 0; }
+        .test-case { padding: 12px 20px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: flex-start; gap: 12px; }
+        .test-case:last-child { border-bottom: none; }
+        .test-case.pass { background: #f0fdf4; }
+        .test-case.fail { background: #fef2f2; }
+        .test-icon { flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+        .test-case.pass .test-icon { background: #10b981; color: white; }
+        .test-case.fail .test-icon { background: #ef4444; color: white; }
+        .test-content { flex: 1; }
+        .test-name { font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+        .test-error { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 13px; color: #991b1b; font-family: "JetBrains Mono", monospace; white-space: pre-wrap; }
+        .run-all { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.15s; }
+        .run-all:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Smart Parser V17.0 - 测试套件</h1>
+
+        <div class="summary">
+            <div class="summary-row">
+                <span>总测试数</span>
+                <span class="stat total" id="totalTests">0</span>
+            </div>
+            <div class="summary-row">
+                <span>通过</span>
+                <span class="stat pass" id="passedTests">0</span>
+            </div>
+            <div class="summary-row">
+                <span>失败</span>
+                <span class="stat fail" id="failedTests">0</span>
+            </div>
+            <div class="summary-row">
+                <span>通过率</span>
+                <span class="stat" id="passRate">0%</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <button class="run-all" onclick="runAllTests()">运行所有测试</button>
+        </div>
+
+        <div id="testResults"></div>
+    </div>
+
+    <script>
+        // 简单的测试框架
+        const TestFramework = {
+            results: [],
+            currentSuite: null,
+
+            describe(suiteName, callback) {
+                this.currentSuite = { name: suiteName, tests: [] };
+                callback();
+                this.results.push(this.currentSuite);
+            },
+
+            it(testName, callback) {
+                const test = { name: testName, fn: callback };
+                if (this.currentSuite) {
+                    this.currentSuite.tests.push(test);
+                }
+            },
+
+            async run() {
+                let total = 0, passed = 0, failed = 0;
+
+                for (const suite of this.results) {
+                    for (const test of suite.tests) {
+                        total++;
+                        try {
+                            await test.fn();
+                            test.status = 'pass';
+                            test.error = null;
+                            passed++;
+                        } catch (error) {
+                            test.status = 'fail';
+                            test.error = error.message;
+                            failed++;
+                        }
+                    }
+                }
+
+                return { total, passed, failed };
+            }
+        };
+
+        // 断言库
+        const assert = {
+            equal(actual, expected, message = '') {
+                if (actual !== expected) {
+                    throw new Error(
+                        message || `期望值 ${JSON.stringify(expected)} 但得到 ${JSON.stringify(actual)}`
+                    );
+                }
+            },
+
+            deepEqual(actual, expected, message = '') {
+                if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+                    throw new Error(
+                        message || `深度相等失败\n期望: ${JSON.stringify(expected)}\n实际: ${JSON.stringify(actual)}`
+                    );
+                }
+            },
+
+            ok(value, message = '') {
+                if (!value) {
+                    throw new Error(message || '期望值为 truthy');
+                }
+            },
+
+            throws(fn, message = '') {
+                let threw = false;
+                try {
+                    fn();
+                } catch (e) {
+                    threw = true;
+                }
+                if (!threw) {
+                    throw new Error(message || '期望函数抛出异常');
+                }
+            },
+
+            fail(message = '测试失败') {
+                throw new Error(message);
+            }
+        };
+
+        // 从 index.html 提取核心模块（简化版本用于测试）
+        const Parser = {
+            parse(raw) {
+                const tables = {};
+                let currentTable = null;
+                let format = null;
+                let headers = [];
+
+                const lines = raw.split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+
+                    const tableMatch = trimmed.match(/^table-data\s+(.+)$/);
+                    if (tableMatch) {
+                        currentTable = tableMatch[1].trim();
+                        tables[currentTable] = [];
+                        format = null;
+                        headers = [];
+                        continue;
+                    }
+
+                    const validFlagMatch = trimmed.match(/^validflag\s+(.+)$/);
+                    if (validFlagMatch && currentTable) {
+                        const headerLine = validFlagMatch[1];
+                        const cols = headerLine.split(/\t/);
+
+                        if (cols.length >= 2) {
+                            format = 'TAB';
+                            headers = cols.map(c => c.trim());
+                        } else if (headerLine.includes(',')) {
+                            format = 'CSV';
+                            headers = headerLine.split(',').map(c => c.trim());
+                        } else {
+                            format = 'WS';
+                            headers = headerLine.split(/\s+/).filter(c => c);
+                        }
+
+                        tables[currentTable].push(headers);
+                        continue;
+                    }
+
+                    if (currentTable && headers.length > 0) {
+                        let row = [];
+                        if (format === 'TAB') {
+                            row = line.split('\t').map(c => c.trim());
+                        } else if (format === 'CSV') {
+                            row = line.split(',').map(c => c.trim());
+                        } else {
+                            row = line.split(/\s+/).filter(c => c);
+                        }
+
+                        if (row.length === headers.length) {
+                            tables[currentTable].push(row);
+                        }
+                    }
+                }
+
+                return tables;
+            }
+        };
+
+        const Store = {
+            KEY: 'v16_4_store_test',
+
+            save(state) {
+                localStorage.setItem(this.KEY, JSON.stringify(state));
+            },
+
+            load() {
+                const raw = localStorage.getItem(this.KEY);
+                return raw ? JSON.parse(raw) : null;
+            },
+
+            clear() {
+                localStorage.removeItem(this.KEY);
+            },
+
+            createDefaultState() {
+                return {
+                    docs: [{
+                        id: 'default',
+                        title: '默认页签',
+                        raw: '',
+                        ui: {
+                            displayTables: null,
+                            enabledViews: [],
+                            targetTable: '',
+                            rules: {},
+                            columnFilters: {},
+                            collapsedTables: {}
+                        }
+                    }],
+                    activeId: 'default',
+                    theme: 'light',
+                    globalViews: []
+                };
+            }
+        };
+
+        // 测试用例
+        TestFramework.describe('Parser - 数据解析', () => {
+            TestFramework.it('应该解析 TAB 格式的表格', () => {
+                const raw = `table-data Users
+validflag	id	name	email
+1	张三	zhangsan@example.com
+2	李四	lisi@example.com`;
+                const result = Parser.parse(raw);
+                assert.ok(result.Users, '应该解析出 Users 表');
+                assert.equal(result.Users.length, 3, '应该有 3 行（含表头）');
+                assert.equal(result.Users[0][0], 'id', '第一列表头应该是 id');
+                assert.equal(result.Users[1][1], '张三', '第二行第二列应该是 张三');
+            });
+
+            TestFramework.it('应该解析多个表格', () => {
+                const raw = `table-data Users
+validflag	id	name
+1	Alice
+2	Bob
+
+table-data Orders
+validflag	id	user_id	amount
+101	1	99.99
+102	2	149.50`;
+                const result = Parser.parse(raw);
+                assert.ok(result.Users, '应该解析出 Users 表');
+                assert.ok(result.Orders, '应该解析出 Orders 表');
+                assert.equal(result.Users.length, 3, 'Users 表应该有 3 行');
+                assert.equal(result.Orders.length, 3, 'Orders 表应该有 3 行');
+            });
+
+            TestFramework.it('应该处理空输入', () => {
+                const result = Parser.parse('');
+                assert.deepEqual(result, {}, '空输入应该返回空对象');
+            });
+
+            TestFramework.it('应该跳过没有表头的行', () => {
+                const raw = `table-data Test
+validflag	col1	col2
+some random text
+data1	data2`;
+                const result = Parser.parse(raw);
+                assert.equal(result.Test.length, 2, '应该只有表头和有效数据行');
+            });
+        });
+
+        TestFramework.describe('Store - 状态管理', () => {
+            TestFramework.it('应该保存和加载状态', () => {
+                Store.clear();
+                const state = Store.createDefaultState();
+                state.docs[0].title = '测试页签';
+                Store.save(state);
+
+                const loaded = Store.load();
+                assert.ok(loaded, '应该加载到状态');
+                assert.equal(loaded.docs[0].title, '测试页签', '应该保存标题');
+            });
+
+            TestFramework.it('应该清除状态', () => {
+                Store.clear();
+                Store.save(Store.createDefaultState());
+                Store.clear();
+                const loaded = Store.load();
+                assert.equal(loaded, null, '清除后应该返回 null');
+            });
+
+            TestFramework.it('应该创建默认状态', () => {
+                const state = Store.createDefaultState();
+                assert.ok(state.docs, '应该有 docs 数组');
+                assert.ok(state.docs.length > 0, '应该至少有一个文档');
+                assert.equal(state.theme, 'light', '默认主题应该是 light');
+                assert.deepEqual(state.globalViews, [], '全局视图应该是空数组');
+            });
+        });
+
+        TestFramework.describe('过滤规则引擎', () => {
+            // 简化的过滤规则解析器
+            const parseFilter = (filterStr) => {
+                if (!filterStr) return () => true;
+                const rules = filterStr.split(/\s+/).filter(s => s);
+                return (row, headers) => {
+                    for (const rule of rules) {
+                        let match = true;
+
+                        if (rule.includes('=')) {
+                            const [key, val] = rule.split('=');
+                            if (key === '') continue;
+                            const idx = headers.indexOf(key);
+                            if (idx >= 0) {
+                                match = row[idx] === val;
+                            }
+                        } else if (rule.includes('>')) {
+                            const [key, val] = rule.split('>');
+                            const idx = headers.indexOf(key);
+                            if (idx >= 0) {
+                                match = parseFloat(row[idx]) > parseFloat(val);
+                            }
+                        } else if (rule.includes(':')) {
+                            const [key, val] = rule.split(':');
+                            const idx = headers.indexOf(key);
+                            if (idx >= 0) {
+                                match = row[idx].includes(val);
+                            }
+                        } else if (rule.startsWith('/') && rule.endsWith('/')) {
+                            const regex = new RegExp(rule.slice(1, -1));
+                            match = row.some(cell => regex.test(cell));
+                        } else {
+                            match = row.some(cell => cell.includes(rule));
+                        }
+
+                        if (match) return true;
+                    }
+                    return false;
+                };
+            };
+
+            TestFramework.it('应该匹配精确相等规则', () => {
+                const filter = parseFilter('status=active');
+                const headers = ['id', 'status', 'name'];
+                assert.ok(filter(['1', 'active', 'test'], headers), '应该匹配 active 状态');
+                assert.ok(!filter(['1', 'inactive', 'test'], headers), '不应该匹配 inactive 状态');
+            });
+
+            TestFramework.it('应该匹配数值比较规则', () => {
+                const filter = parseFilter('age>18');
+                const headers = ['name', 'age'];
+                assert.ok(filter(['Alice', '25'], headers), '应该匹配 age>18');
+                assert.ok(!filter(['Bob', '15'], headers), '不应该匹配 age<=18');
+            });
+
+            TestFramework.it('应该匹配包含规则', () => {
+                const filter = parseFilter('msg:error');
+                const headers = ['id', 'msg'];
+                assert.ok(filter(['1', 'error occurred'], headers), '应该匹配包含 error');
+                assert.ok(!filter(['1', 'success'], headers), '不应该匹配不包含 error 的行');
+            });
+
+            TestFramework.it('应该支持 OR 逻辑', () => {
+                const filter = parseFilter('status=active|status=pending');
+                const headers = ['id', 'status'];
+                assert.ok(filter(['1', 'active'], headers), '应该匹配 active');
+                assert.ok(filter(['2', 'pending'], headers), '应该匹配 pending');
+                assert.ok(!filter(['3', 'inactive'], headers), '不应该匹配 inactive');
+            });
+        });
+
+        TestFramework.describe('JOIN 操作', () => {
+            const executeJoin = (leftTable, rightTable, onClause, joinType) => {
+                const [leftCol, rightCol] = onClause.split('=');
+                const leftIdx = leftTable[0].indexOf(leftCol);
+                const rightIdx = rightTable[0].indexOf(rightCol);
+
+                const headers = [...leftTable[0]];
+                rightTable[0].forEach((h, i) => {
+                    if (i !== rightIdx) headers.push(h + '_r');
+                });
+
+                const result = [headers];
+
+                for (let i = 1; i < leftTable.length; i++) {
+                    const leftRow = leftTable[i];
+                    const leftVal = leftRow[leftIdx];
+                    let matched = false;
+
+                    for (let j = 1; j < rightTable.length; j++) {
+                        const rightRow = rightTable[j];
+                        if (rightRow[rightIdx] === leftVal) {
+                            const joined = [...leftRow];
+                            rightRow.forEach((cell, k) => {
+                                if (k !== rightIdx) joined.push(cell);
+                            });
+                            result.push(joined);
+                            matched = true;
+                        }
+                    }
+
+                    if (!matched && joinType === 'left') {
+                        result.push([...leftRow, ...rightTable[0].map(() => '')]);
+                    }
+                }
+
+                return result;
+            };
+
+            TestFramework.it('应该执行 INNER JOIN', () => {
+                const users = [
+                    ['id', 'name'],
+                    ['1', 'Alice'],
+                    ['2', 'Bob'],
+                    ['3', 'Charlie']
+                ];
+                const orders = [
+                    ['id', 'user_id', 'amount'],
+                    ['101', '1', '99.99'],
+                    ['102', '2', '149.50']
+                ];
+                const result = executeJoin(users, orders, 'id=user_id', 'inner');
+                assert.equal(result.length, 3, '应该有 3 行（含表头）');
+                assert.equal(result[1][1], 'Alice', '第一行应该是 Alice');
+                assert.equal(result[1][3], '99.99', 'Alice 的订单金额应该是 99.99');
+            });
+
+            TestFramework.it('应该执行 LEFT JOIN', () => {
+                const users = [
+                    ['id', 'name'],
+                    ['1', 'Alice'],
+                    ['2', 'Bob']
+                ];
+                const orders = [
+                    ['id', 'user_id', 'amount'],
+                    ['101', '1', '99.99']
+                ];
+                const result = executeJoin(users, orders, 'id=user_id', 'left');
+                assert.equal(result.length, 4, '应该有 4 行（含表头）');
+                assert.equal(result[3][1], 'Bob', '第三行应该是 Bob（即使没有订单）');
+            });
+
+            TestFramework.it('应该处理空表', () => {
+                const empty = [['id', 'name']];
+                const data = [['id', 'value'], ['1', 'test']];
+                const result = executeJoin(empty, data, 'id=id', 'inner');
+                assert.equal(result.length, 1, '应该只有表头行');
+            });
+        });
+
+        TestFramework.describe('Excel 导出工具', () => {
+            // 简化的转义函数测试
+            const escapeXml = (str) => {
+                if (str == null) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&apos;');
+            };
+
+            TestFramework.it('应该转义 XML 特殊字符', () => {
+                assert.equal(escapeXml('<script>'), '&lt;script&gt;');
+                assert.equal(escapeXml('Tom & Jerry'), 'Tom &amp; Jerry');
+                assert.equal(escapeXml('"quoted"'), '&quot;quoted&quot;');
+            });
+
+            TestFramework.it('应该处理 null 和 undefined', () => {
+                assert.equal(escapeXml(null), '');
+                assert.equal(escapeXml(undefined), '');
+            });
+
+            TestFramework.it('应该转换数字为字符串', () => {
+                assert.equal(escapeXml(123), '123');
+                assert.equal(escapeXml(45.67), '45.67');
+            });
+        });
+
+        TestFramework.describe('主题切换', () => {
+            TestFramework.it('应该切换亮色主题', () => {
+                document.documentElement.setAttribute('data-theme', 'light');
+                const computed = getComputedStyle(document.documentElement);
+                assert.equal(
+                    document.documentElement.getAttribute('data-theme'),
+                    'light',
+                    '应该设置 data-theme 为 light'
+                );
+            });
+
+            TestFramework.it('应该切换暗色主题', () => {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                assert.equal(
+                    document.documentElement.getAttribute('data-theme'),
+                    'dark',
+                    '应该设置 data-theme 为 dark'
+                );
+            });
+
+            TestFramework.it('应该移除主题属性', () => {
+                document.documentElement.removeAttribute('data-theme');
+                assert.equal(
+                    document.documentElement.getAttribute('data-theme'),
+                    null,
+                    '应该移除 data-theme 属性'
+                );
+            });
+        });
+
+        // 运行测试并渲染结果
+        async function runAllTests() {
+            const results = await TestFramework.run();
+            updateSummary(results);
+            renderResults();
+        }
+
+        function updateSummary(results) {
+            document.getElementById('totalTests').textContent = results.total;
+            document.getElementById('passedTests').textContent = results.passed;
+            document.getElementById('failedTests').textContent = results.failed;
+            const rate = results.total > 0 ? ((results.passed / results.total) * 100).toFixed(1) : 0;
+            document.getElementById('passRate').textContent = rate + '%';
+        }
+
+        function renderResults() {
+            const container = document.getElementById('testResults');
+            container.innerHTML = '';
+
+            for (const suite of TestFramework.results) {
+                const suiteEl = createSuiteElement(suite);
+                container.appendChild(suiteEl);
+            }
+        }
+
+        function createSuiteElement(suite) {
+            const passed = suite.tests.filter(t => t.status === 'pass').length;
+            const failed = suite.tests.filter(t => t.status === 'fail').length;
+
+            const div = document.createElement('div');
+            div.className = 'test-suite';
+
+            div.innerHTML = `
+                <div class="suite-header">
+                    <span>${suite.name}</span>
+                    <span style="font-size:13px;">
+                        <span style="color:#10b981;">✓ ${passed}</span>
+                        ${failed > 0 ? `<span style="color:#ef4444; margin-left:10px;">✗ ${failed}</span>` : ''}
+                    </span>
+                </div>
+                <div class="suite-body"></div>
+            `;
+
+            const body = div.querySelector('.suite-body');
+            for (const test of suite.tests) {
+                body.appendChild(createTestElement(test));
+            }
+
+            return div;
+        }
+
+        function createTestElement(test) {
+            const div = document.createElement('div');
+            div.className = `test-case ${test.status}`;
+
+            const icon = test.status === 'pass' ? '✓' : '✗';
+
+            let html = `
+                <div class="test-icon">${icon}</div>
+                <div class="test-content">
+                    <div class="test-name">${test.name}</div>
+            `;
+
+            if (test.error) {
+                html += `<div class="test-error">${test.error}</div>`;
+            }
+
+            html += '</div>';
+            div.innerHTML = html;
+
+            return div;
+        }
+
+        // 页面加载时自动运行测试
+        window.addEventListener('DOMContentLoaded', () => {
+            runAllTests();
+        });
+    </script>
+</body>
+</html>

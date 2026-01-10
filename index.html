@@ -11,28 +11,19 @@
             --primary-hover: #1d4ed8;
             --primary-soft: #e8f1ff;
             --bg-app: #f5f6f8;
-            --bg-card: #ffffff;
+            --bg-card: #fff;
             --bg-elevated: #f9fafb;
             --border: #e5e7eb;
             --border-strong: #d1d5db;
-            --border-light: #e5e7eb;
             --text-strong: #0f172a;
             --text-mid: #475569;
             --text-weak: #94a3b8;
-            --text-main: #0f172a;
-            --text-secondary: #475569;
-            --text-tertiary: #94a3b8;
-            --bg-panel: #ffffff;
-            --bg-hover: #f9fafb;
-            --bg-input: #ffffff;
-            --primary-subtle: #e8f1ff;
             --radius-sm: 6px;
             --radius-md: 10px;
             --shadow-xs: 0 6px 18px rgba(15, 23, 42, 0.06);
             --shadow-md: 0 18px 42px rgba(15, 23, 42, 0.1);
             --highlight-row: #eef4ff;
             --selection-bg: rgba(37, 99, 235, 0.14);
-            --z-float: 900;
             --z-modal: 1200;
         }
 
@@ -45,17 +36,9 @@
             --bg-elevated: #0d1a2d;
             --border: #1f2d45;
             --border-strong: #263651;
-            --border-light: #1f2d45;
             --text-strong: #f8fafc;
             --text-mid: #cbd5e1;
             --text-weak: #94a3b8;
-            --text-main: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-tertiary: #94a3b8;
-            --bg-panel: #0f1f38;
-            --bg-hover: #132544;
-            --bg-input: #0f1f38;
-            --primary-subtle: #1d2a44;
             --shadow-xs: 0 6px 18px rgba(0, 0, 0, 0.35);
             --shadow-md: 0 18px 42px rgba(0, 0, 0, 0.45);
             --highlight-row: #132545;
@@ -575,33 +558,45 @@ const Tooltip = {
 Tooltip.init();
 
 const Toast = {
-    show(msg, isError=false) {
-        const el = $('toast'); el.textContent = msg; 
-        el.className = isError ? 'show error' : 'show';
-        setTimeout(()=>el.className='', 2000);
+    el: $('toast'),
+    show(msg, isError = false) {
+        this.el.textContent = msg;
+        this.el.className = isError ? 'show error' : 'show';
+        setTimeout(() => this.el.className = '', 2000);
+    }
+};
+
+// Shared escape function (used for both XML and HTML)
+const escapeXml = str => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/* Date/time utils */
+const DateTime = {
+    now() { return new Date(); },
+    formatTimestamp() {
+        const d = this.now();
+        return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
+};
+
+/* Download helper */
+const Download = {
+    save(filename, content, type = 'text/plain') {
+        const blob = content instanceof Blob ? content : new Blob([content], {type});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
     }
 };
 
 /* Exporter */
 const Exporter = {
-    escapeXml(str="") {
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    },
-    getTimestamp() {
-        const now = new Date(); const pad = n => String(n).padStart(2,'0');
-        return `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    },
-    download(filename, content, type='text/plain') {
-        const blob = content instanceof Blob ? content : new Blob([content], {type});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = filename;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    },
+    escapeXml,
+    getTimestamp: () => DateTime.formatTimestamp(),
+    download: Download.save,
     sanitizeSheetName(name, used) {
         const maxLen = 31;
         let safe = (name || 'Sheet').replace(/[\\\/:?*\[\]]/g, '_').trim();
@@ -963,34 +958,47 @@ const Joiner = {
 
 /* Join Editor */
 const JoinEditor = {
-    state: { editIdx: -1, left: null, right: null, rels: [], lSel: [], rSel: [], order: [], dirty: false, initial: null, lOnlySel: false, rOnlySel: false, showL: true, showR: true, prevLeft: null, prevRight: null, titleBase: '' },
+    state: {
+        editIdx: -1,
+        left: null,
+        right: null,
+        rels: [],
+        lSel: [],
+        rSel: [],
+        order: [],
+        dirty: false,
+        initial: null,
+        lOnlySel: false,
+        rOnlySel: false,
+        showL: true,
+        showR: true,
+        prevLeft: null,
+        prevRight: null,
+        titleBase: ''
+    },
     metaCache: {},
     dragIdx: null,
 
+    // Use shared escape function
+    escapeHtml: escapeXml,
+
     formatTime(ts) {
-        if(!ts) return '';
+        if (!ts) return '';
         const d = new Date(ts);
-        if(Number.isNaN(d.getTime())) return '';
-        const pad = n => String(n).padStart(2, '0');
+        if (Number.isNaN(d.getTime())) return '';
         return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
-    escapeHtml(str='') {
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    },
-    isNameConflict(name, excludeIdx=-1) {
+
+    isNameConflict(name, excludeIdx = -1) {
         const rawNames = App.raw.map(t => t.name);
-        const viewNames = Store.state.globalViews.filter((_,i)=>i!==excludeIdx).map(v => v.view);
+        const viewNames = Store.state.globalViews.filter((_, i) => i !== excludeIdx).map(v => v.view);
         return rawNames.includes(name) || viewNames.includes(name);
     },
-    makeUniqueName(base, excludeIdx=-1) {
+
+    makeUniqueName(base, excludeIdx = -1) {
         let name = base || 'View';
         let i = 1;
-        while(this.isNameConflict(name, excludeIdx)) {
+        while (this.isNameConflict(name, excludeIdx)) {
             name = `${base || 'View'}_${i++}`;
         }
         return name;
@@ -1027,14 +1035,15 @@ const JoinEditor = {
                 const meta = stamp
                     ? `${joinLabel} · ${v.left} | ${v.right} · ${fieldCount}列 · ${stamp}`
                     : `${joinLabel} · ${v.left} | ${v.right} · ${fieldCount}列`;
+                const esc = this.escapeHtml;
 
                 return `
                 <div class="view-item" data-index="${i}" style="display:flex; justify-content:space-between; align-items:center; padding:10px; border:1px solid var(--border-light); margin-bottom:8px; border-radius:6px; background:var(--bg-card);">
                     <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
                         <input type="checkbox" class="view-checkbox" data-index="${i}" style="flex-shrink:0;">
                         <div style="min-width:0; flex:1;">
-                            <div style="font-weight:600; color:var(--primary); margin-bottom:2px;">${this.escapeHtml(v.view)}</div>
-                            <div style="font-size:11px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(meta)}</div>
+                            <div style="font-weight:600; color:var(--primary); margin-bottom:2px;">${esc(v.view)}</div>
+                            <div style="font-size:11px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(meta)}</div>
                         </div>
                     </div>
                     <div class="flex gap-2" id="jeActions_${i}" style="flex-shrink:0;">
@@ -1356,10 +1365,11 @@ const JoinEditor = {
     },
     renderColList(id, cols, selected, side) {
         const list = this.getFilteredCols(side, cols);
+        const esc = this.escapeHtml;
         const html = list.map(c => `
             <label class="checkbox-row">
-                <input type="checkbox" data-side="${side}" value="${this.escapeHtml(c)}" ${selected.includes(c)?'checked':''}>
-                <span>${this.escapeHtml(c)}</span>
+                <input type="checkbox" data-side="${side}" value="${esc(c)}" ${selected.includes(c)?'checked':''}>
+                <span>${esc(c)}</span>
             </label>
         `).join('');
         $(id).innerHTML = html || '<div style="padding:8px; color:#999;">无匹配字段</div>';
@@ -1368,14 +1378,15 @@ const JoinEditor = {
             chk.onchange = () => this.setSelection(side, chk.value, chk.checked);
         });
     },
-    
+
     renderRels() {
         const lName = $('jeLeftTable').value;
         const rName = $('jeRightTable').value;
         const lCols = App.getCols(lName);
         const rCols = App.getCols(rName);
-        const lOpts = lCols.map(c=>`<option value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</option>`).join('');
-        const rOpts = rCols.map(c=>`<option value="${this.escapeHtml(c)}">${this.escapeHtml(c)}</option>`).join('');
+        const esc = this.escapeHtml;
+        const lOpts = lCols.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+        const rOpts = rCols.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
 
         $('jeRelContainer').innerHTML = this.state.rels.map((r, i) => `
             <div class="join-rel-card" data-idx="${i}">
@@ -1532,7 +1543,7 @@ const JoinEditor = {
         const stamp = this.formatTime(v.updatedAt || v.createdAt);
         el.innerHTML = `<div style="font-weight:700; margin-bottom:4px;">视图依赖</div><div>${this.escapeHtml(chain)}</div><div class="muted" style="margin-top:4px;">更新: ${stamp || '未知'}</div>`;
     },
-    buildDependencyChain(name, seen=new Set()) {
+    buildDependencyChain(name, seen = new Set()) {
         const v = Store.state.globalViews.find(x => x.view === name);
         if(!v) return name;
         if(seen.has(name)) return `${name}(循环)`;
@@ -1623,8 +1634,9 @@ const JoinEditor = {
         applyChange();
     },
     confirmTableChange({ title, removedCols, removedRels, onConfirm, onCancel }) {
-        const colHtml = removedCols.length ? `<div class="muted">将移除列</div><div style="display:flex; flex-wrap:wrap; gap:6px; margin:6px 0;">${removedCols.map(c => `<span class="chip">${this.escapeHtml(c)}</span>`).join('')}</div>` : '';
-        const relHtml = removedRels.length ? `<div class="muted" style="margin-top:6px;">失效关联</div><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">${removedRels.map(c => `<span class="chip">${this.escapeHtml(c)}</span>`).join('')}</div>` : '';
+        const esc = this.escapeHtml;
+        const colHtml = removedCols.length ? `<div class="muted">将移除列</div><div style="display:flex; flex-wrap:wrap; gap:6px; margin:6px 0;">${removedCols.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div>` : '';
+        const relHtml = removedRels.length ? `<div class="muted" style="margin-top:6px;">失效关联</div><div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">${removedRels.map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div>` : '';
         App.modal(title, `${colHtml}${relHtml}<div style="text-align:right; margin-top:12px;"><button class="sm" id="jeTblCancel">取消</button><button class="primary sm" id="jeTblOk" style="margin-left:8px;">继续</button></div>`);
         $('jeTblCancel').onclick = () => { $('modalOverlay').classList.add('hidden'); if(onCancel) onCancel(); };
         $('jeTblOk').onclick = () => { $('modalOverlay').classList.add('hidden'); if(onConfirm) onConfirm(); };
@@ -1706,12 +1718,13 @@ const JoinEditor = {
         const rightSel = $('jeRightTable');
         const leftName = (leftSel && leftSel.value) ? leftSel.value : '左表';
         const rightName = (rightSel && rightSel.value) ? rightSel.value : '右表';
+        const esc = this.escapeHtml;
         box.innerHTML = visible.map(o => {
             const idx = this.state.order.indexOf(o);
             const tableName = o.side === 'l' ? leftName : rightName;
             const labelRaw = `${tableName}.${o.col}`;
-            const label = this.escapeHtml(labelRaw);
-            const alias = this.escapeHtml(o.alias || '');
+            const label = esc(labelRaw);
+            const alias = esc(o.alias || '');
             return `
             <div class="join-chip" data-idx="${idx}" draggable="true">
                 <div class="join-chip-main">
@@ -2758,26 +2771,33 @@ validflag Time      Level   Message                 Code
             $('modalOverlay').classList.add('hidden'); this.run();
         };
     },
-    
+
     modCols() {
-        const tName = $('targetTableSelect').value; if(!tName) return;
-        
-        let all = [];
+        const tName = $('targetTableSelect').value;
+        if(!tName) return;
+
+        // Get columns for the selected table
         const rawTable = this.raw.find(x => x.name === tName);
-        
-        if(rawTable) { all = rawTable.headers; } 
-        else if (tName.startsWith('JOIN:')) {
+        let all = rawTable ? rawTable.headers : [];
+
+        if(!all.length && tName.startsWith('JOIN:')) {
             const vName = tName.replace('JOIN:', '');
             const vCfg = Store.state.globalViews.find(v => v.view === vName);
-            if(vCfg) { const res = Joiner.run(this.raw, vCfg, Store.state.globalViews); if(res) all = res.headers; }
+            if(vCfg) {
+                const res = Joiner.run(this.raw, vCfg, Store.state.globalViews);
+                if(res) all = res.headers;
+            }
         }
-        if((!all || !all.length)) { const rt = this.rendered.find(x => x.name === tName); if(rt) all = rt.headers; }
-        if(!all || !all.length) return alert('无法获取列信息');
+        if(!all.length) {
+            const rt = this.rendered.find(x => x.name === tName);
+            if(rt) all = rt.headers;
+        }
+        if(!all.length) return alert('无法获取列信息');
 
         const rule = Store.curr().ui.rules[tName] || {};
         const cur = (rule.focus && rule.focus.length > 0) ? rule.focus : all;
         const isFocusActive = (rule.focus && rule.focus.length > 0);
-        
+
         const html = `
             <div style="margin-bottom:10px; display:flex; gap:8px;">
                 <input id="colSearch" placeholder="搜索列名..." style="flex:1;">
@@ -2791,13 +2811,26 @@ validflag Time      Level   Message                 Code
         `;
         this.modal(`选择列: ${tName}`, html);
         const list = $('colList');
-        $('colSearch').oninput = e => { const v=e.target.value.toLowerCase(); Array.from(list.children).forEach(r => r.style.display = r.dataset.val.includes(v)?'flex':'none'); };
-        $('colAll').onclick = () => Array.from(list.children).forEach(r => { if(r.style.display!=='none') r.querySelector('input').checked=true; });
-        $('colNone').onclick = () => Array.from(list.children).forEach(r => { if(r.style.display!=='none') r.querySelector('input').checked=false; });
+        $('colSearch').oninput = e => {
+            const v = e.target.value.toLowerCase();
+            Array.from(list.children).forEach(r => r.style.display = r.dataset.val.includes(v) ? 'flex' : 'none');
+        };
+        $('colAll').onclick = () => {
+            Array.from(list.children).forEach(r => {
+                if(r.style.display !== 'none') r.querySelector('input').checked = true;
+            });
+        };
+        $('colNone').onclick = () => {
+            Array.from(list.children).forEach(r => {
+                if(r.style.display !== 'none') r.querySelector('input').checked = false;
+            });
+        };
         $('saveMod').onclick = () => {
-            const v = Array.from(list.querySelectorAll('input:checked')).map(c=>c.value);
-            Store.updateRule(tName, 'focus', v); $('focusColsInput').value=v.join(', ');
-            $('modalOverlay').classList.add('hidden'); this.renderPreview();
+            const v = Array.from(list.querySelectorAll('input:checked')).map(c => c.value);
+            Store.updateRule(tName, 'focus', v);
+            $('focusColsInput').value = v.join(', ');
+            $('modalOverlay').classList.add('hidden');
+            this.renderPreview();
         };
     }
 };
