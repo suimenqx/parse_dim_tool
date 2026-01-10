@@ -974,7 +974,8 @@ const JoinEditor = {
         showR: true,
         prevLeft: null,
         prevRight: null,
-        titleBase: ''
+        titleBase: '',
+        fromManageViews: false
     },
     metaCache: {},
     dragIdx: null,
@@ -1165,7 +1166,7 @@ const JoinEditor = {
                 const delOkBtn = $(`jeDelOk_${i}`);
                 const checkbox = document.querySelector(`.view-checkbox[data-index="${i}"]`);
 
-                if (editBtn) editBtn.onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(i); };
+                if (editBtn) editBtn.onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(i, true); };
                 if (copyBtn) copyBtn.onclick = () => {
                     const name = this.makeUniqueName(`${v.view}_copy`);
                     const nv = { ...v, view: name, createdAt: Date.now(), updatedAt: Date.now() };
@@ -1207,7 +1208,7 @@ const JoinEditor = {
         this.bindViewActions(vs);
 
         // 其他按钮绑定
-        $('jeAddNew').onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(-1); };
+        $('jeAddNew').onclick = () => { $('modalOverlay').classList.add('hidden'); this.open(-1, true); };
         const pasteBtn = $('jePasteBtn');
         if (pasteBtn) pasteBtn.onclick = () => this.importViewsFromText($('jePaste').value || '');
     },
@@ -1262,10 +1263,11 @@ const JoinEditor = {
         }
     },
     
-    open(editIdx = -1) {
+    open(editIdx = -1, fromManageViews = false) {
         const p = $('joinModal'); p.classList.remove('hidden');
         document.body.classList.add('modal-open');
         this.state.editIdx = editIdx;
+        this.state.fromManageViews = fromManageViews;
         this.metaCache = {};
         const v = editIdx > -1 ? Store.state.globalViews[editIdx] : { view:'', left:'', right:'', type:'inner', on:'', select:'' };
 
@@ -1879,6 +1881,11 @@ const JoinEditor = {
         this.setDirty(false);
         $('joinModal').classList.add('hidden');
         document.body.classList.remove('modal-open');
+
+        // 如果从管理视图进入，重新打开管理视图
+        if (this.state.fromManageViews) {
+            this.modManageViews();
+        }
     }
 };
 
